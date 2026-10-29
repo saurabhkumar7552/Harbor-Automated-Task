@@ -1,0 +1,58 @@
+{
+  "dry_run": true,
+  "target": 5,
+  "existing_tasks": "F:\\GITHUB\\test\\tasks",
+  "output": "C:\\Users\\hp\\AppData\\Local\\Temp\\stem-task-factory\\factory-output",
+  "roles": {
+    "author": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_VERIFIED_AUTHOR_MODEL_ID",
+      "effort": null,
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "isolation_launcher_configured": false
+    },
+    "reviewer": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID",
+      "effort": null,
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "isolation_launcher_configured": false
+    },
+    "implementer": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_VERIFIED_IMPLEMENTER_MODEL_ID",
+      "effort": null,
+      "timeout": 300,
+      "max_output_bytes": 2097152,
+      "isolation_launcher_configured": false
+    }
+  },
+  "operations": [
+    "Validate models, installed CLI capabilities, authentication environment, Harbor and Docker",
+    "Load read-only existing task inventory",
+    "Author strict JSON proposals",
+    "Independent difficulty review; revise or reject with bounded retries",
+    "Implement reviewed proposal as JSON content; audit with reviewer",
+    "Render fixed Harbor 1.3 templates to staging",
+    "Validate installed Harbor schema; run packaged reference twice in offline Docker",
+    "Require empty-start failure and at least 3 conceptual mutants caught by assertions",
+    "Atomic publication inside output/accepted; persist state and report"
+  ],
+  "limits": {
+    "max_candidates": 15,
+    "max_revisions": 2,
+    "max_calls": 100,
+    "max_run_seconds": 7200,
+    "max_cost_usd": null,
+    "max_unknown_cost_calls": 100,
+    "max_prompt_bytes": 1048576,
+    "similarity_threshold": 0.72
+  },
+  "benchmark_execution": "never",
+  "cost": "Model usage may be billable; unknown cost is bounded by call count, not a dollar guarantee"
+}

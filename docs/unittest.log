@@ -1,0 +1,53 @@
+test_claude_and_gemini_reject_unverified_effort (tests.test_adapters.Adapters.test_claude_and_gemini_reject_unverified_effort) ... ok
+test_claude_envelopes (tests.test_adapters.Adapters.test_claude_envelopes) ... ok
+test_claude_no_tools_or_mcp_or_hooks (tests.test_adapters.Adapters.test_claude_no_tools_or_mcp_or_hooks) ... ok
+test_codex_and_gemini_fail_closed_without_launcher (tests.test_adapters.Adapters.test_codex_and_gemini_fail_closed_without_launcher) ... ok
+test_codex_jsonl_usage (tests.test_adapters.Adapters.test_codex_jsonl_usage) ... ok
+test_codex_rejects_missing_multiple_error (tests.test_adapters.Adapters.test_codex_rejects_missing_multiple_error) ... ok
+test_extension_registry (tests.test_adapters.Adapters.test_extension_registry) ... ok
+test_gemini_explicit_parser_no_fence_stripping (tests.test_adapters.Adapters.test_gemini_explicit_parser_no_fence_stripping) ... ok
+test_permission_args_cannot_override_adapter (tests.test_adapters.Adapters.test_permission_args_cannot_override_adapter) ... ok
+test_all_contracts_roundtrip (tests.test_contracts_config.ContractsAndConfig.test_all_contracts_roundtrip) ... ok
+test_config_independent_models_output_separation_unknown_keys (tests.test_contracts_config.ContractsAndConfig.test_config_independent_models_output_separation_unknown_keys) ... ok
+test_duplicate_and_similarity (tests.test_contracts_config.ContractsAndConfig.test_duplicate_and_similarity) ... ok
+test_extra_missing_wrong_types (tests.test_contracts_config.ContractsAndConfig.test_extra_missing_wrong_types) ... ok
+test_fail_cannot_be_converted_to_pass (tests.test_contracts_config.ContractsAndConfig.test_fail_cannot_be_converted_to_pass) ... ok
+test_malformed_json_duplicate_fences_trailing_nonfinite (tests.test_contracts_config.ContractsAndConfig.test_malformed_json_duplicate_fences_trailing_nonfinite) ... ok
+test_placeholder_models_block_live_run (tests.test_contracts_config.ContractsAndConfig.test_placeholder_models_block_live_run) ... ok
+test_reviewer_does_not_see_author_difficulty (tests.test_contracts_config.ContractsAndConfig.test_reviewer_does_not_see_author_difficulty) ... ok
+test_same_executable_cannot_hide_model_identity_behind_adapter_alias (tests.test_contracts_config.ContractsAndConfig.test_same_executable_cannot_hide_model_identity_behind_adapter_alias) ... ok
+test_scope_rejects_paths_and_dependencies (tests.test_contracts_config.ContractsAndConfig.test_scope_rejects_paths_and_dependencies) ... ok
+test_bad_mutants_and_no_tests_rejected (tests.test_safety_validation.SafetyAndValidation.test_bad_mutants_and_no_tests_rejected) ... ok
+test_container_cleanup_after_timeout (tests.test_safety_validation.SafetyAndValidation.test_container_cleanup_after_timeout) ... ok
+test_container_commands_are_fixed_offline_no_credentials (tests.test_safety_validation.SafetyAndValidation.test_container_commands_are_fixed_offline_no_credentials) ... ok
+test_full_validation_order_and_mutation_outcomes (tests.test_safety_validation.SafetyAndValidation.test_full_validation_order_and_mutation_outcomes) ... ok
+test_missing_harbor_never_publishes (tests.test_safety_validation.SafetyAndValidation.test_missing_harbor_never_publishes) ... ok
+test_mutant_must_fail_assertions_not_import (tests.test_safety_validation.SafetyAndValidation.test_mutant_must_fail_assertions_not_import) ... ok
+test_offline_build_command_and_image_identity (tests.test_safety_validation.SafetyAndValidation.test_offline_build_command_and_image_identity) ... ok
+test_package_changes_are_detected (tests.test_safety_validation.SafetyAndValidation.test_package_changes_are_detected) ... ok
+test_package_hidden_context_and_exact_metadata (tests.test_safety_validation.SafetyAndValidation.test_package_hidden_context_and_exact_metadata) ... ok
+test_process_timeout (tests.test_safety_validation.SafetyAndValidation.test_process_timeout) ... ok
+test_process_uses_argument_array_and_bounded_output (tests.test_safety_validation.SafetyAndValidation.test_process_uses_argument_array_and_bounded_output) ... ok
+test_reference_requires_observed_test_count (tests.test_safety_validation.SafetyAndValidation.test_reference_requires_observed_test_count) ... ok
+test_secret_values_redacted_and_rejected (tests.test_safety_validation.SafetyAndValidation.test_secret_values_redacted_and_rejected) ... ok
+test_accept_and_resume_without_repeated_calls (tests.test_workflow.Workflow.test_accept_and_resume_without_repeated_calls) ... ok
+test_atomic_publication_collision (tests.test_workflow.Workflow.test_atomic_publication_collision) ... ok
+test_budget_resume_does_not_repeat_author_call (tests.test_workflow.Workflow.test_budget_resume_does_not_repeat_author_call) ... ok
+test_cache_replay_no_request_cost (tests.test_workflow.Workflow.test_cache_replay_no_request_cost) ... ok
+test_crash_after_validation_attachment_resumes_without_new_calls (tests.test_workflow.Workflow.test_crash_after_validation_attachment_resumes_without_new_calls) ... ok
+test_dry_run_never_creates_output (tests.test_workflow.Workflow.test_dry_run_never_creates_output) ... ok
+test_exhausted_review_never_implements (tests.test_workflow.Workflow.test_exhausted_review_never_implements) ... ok
+test_failed_validation_preserves_artifacts (tests.test_workflow.Workflow.test_failed_validation_preserves_artifacts) ... ok
+test_full_five_control_plane (tests.test_workflow.Workflow.test_full_five_control_plane) ... ok
+test_interrupt_before_cache_requires_explicit_retry (tests.test_workflow.Workflow.test_interrupt_before_cache_requires_explicit_retry) ... ok
+test_malformed_review_is_preserved_and_never_implemented (tests.test_workflow.Workflow.test_malformed_review_is_preserved_and_never_implemented) ... ok
+test_modified_accepted_package_blocks_resume (tests.test_workflow.Workflow.test_modified_accepted_package_blocks_resume) ... ok
+test_post_publish_crash_reconciles (tests.test_workflow.Workflow.test_post_publish_crash_reconciles) ... ok
+test_prompt_budget_fails_before_request_reservation (tests.test_workflow.Workflow.test_prompt_budget_fails_before_request_reservation) ... ok
+test_review_failure_revised_and_fresh_review (tests.test_workflow.Workflow.test_review_failure_revised_and_fresh_review) ... ok
+test_run_lock_excludes_second_writer (tests.test_workflow.Workflow.test_run_lock_excludes_second_writer) ... ok
+
+----------------------------------------------------------------------
+Ran 48 tests in 22.941s
+
+OK

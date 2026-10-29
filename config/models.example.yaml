@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "repository": "..",
+  "existing_tasks": "../tasks",
+  "output": "../factory-output",
+  "adapters": {},
+  "roles": {
+    "author": {
+      "adapter": "claude", "executable": "claude",
+      "model": "YOUR_VERIFIED_AUTHOR_MODEL_ID", "effort": null,
+      "args": [], "timeout": 300, "max_output_bytes": 1048576,
+      "required_env": [], "cwd": null, "launcher": []
+    },
+    "reviewer": {
+      "adapter": "claude", "executable": "claude",
+      "model": "YOUR_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID", "effort": null,
+      "args": [], "timeout": 300, "max_output_bytes": 1048576,
+      "required_env": [], "cwd": null, "launcher": []
+    },
+    "implementer": {
+      "adapter": "claude", "executable": "claude",
+      "model": "YOUR_VERIFIED_IMPLEMENTER_MODEL_ID", "effort": null,
+      "args": [], "timeout": 300, "max_output_bytes": 2097152,
+      "required_env": [], "cwd": null, "launcher": []
+    }
+  },
+  "limits": {"max_candidates": 15, "max_revisions": 2, "max_calls": 100,
+             "max_unknown_cost_calls": 100, "max_run_seconds": 7200,
+             "max_cost_usd": null, "similarity_threshold": 0.72},
+  "validation": {"docker_executable": "docker", "image": "python:3.13.0-slim-bookworm",
+                 "timeout": 60, "max_output_bytes": 1048576,
+                 "harbor_python": null, "harbor_site_packages": null}
+}
