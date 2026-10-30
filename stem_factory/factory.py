@@ -3,9 +3,9 @@ from pathlib import Path
 import time
 from . import contracts
 from .adapters import create
-from .config import require_models
-from .errors import BudgetError, FactoryError
-from .packaging import create_package, publish, static_check
+from .config import require_models, require_live_execution
+from .errors import BudgetError, ContractError, FactoryError
+from .packaging import check_implementation, create_package, publish, static_check
 from .proposals import author_prompt, inventory, novelty, prompt, validate_scope
 from .reporting import atomic_json, digest, event, report, tree_hash
 from .review import audit_passed, audit_prompt, passed, review_prompt
@@ -19,9 +19,13 @@ instruction is the full self-contained public specification, including exact API
 all constraints, units, numerical tolerances, input validation and acceptance criteria.
 reference_python is the complete /work/task.py source, never public.
 tests_python uses standard library unittest.TestCase with at least 8 named test_ methods.
-Import the submitted API from task; do not redefine its implementation in tests.
+Test the submitted API from task; arrange fresh-import safety checks before parent imports.
+Do not redefine its implementation in tests. Follow the shared verifier contract.
 Do not add a runner, main block, exit calls, print fake test results, alter unittest,
-read private author files, run subprocesses, use network, or rely on random state.
+read private author files, use network, or rely on global/unseeded random state.
+Only bounded local import-safety subprocesses and local seeded test generators
+are permitted as described in the shared verifier contract; neither is allowed
+in the submitted solution unless the public task contract explicitly permits it.
 The factory supplies the runner. Include deterministic independent expected results,
 edge cases, invalid input, numeric tolerances, invariants and non-mutation checks.
 mutants contains at least three distinct syntactically valid complete task.py sources
@@ -45,7 +49,7 @@ def dry_plan(config, target):
                            'Validate installed Harbor schema; run packaged reference twice in offline Docker',
                            'Require empty-start failure and at least 3 conceptual mutants caught by assertions',
                            'Atomic publication inside output/accepted; persist state and report'],
-            'limits': config.limits, 'benchmark_execution': 'never',
+            'limits': config.limits, 'execution': config.execution, 'benchmark_execution': 'never',
             'cost': 'Model usage may be billable; unknown cost is bounded by call count, not a dollar guarantee'}
 
 
@@ -57,6 +61,7 @@ class Factory:
         self.retry_uncertain = retry_uncertain
 
     def preflight(self):
+        require_live_execution(self.config)
         require_models(self.config)
         for adapter in self.adapters.values():
             adapter.preflight()
@@ -74,6 +79,8 @@ class Factory:
             for folder in ('accepted', 'staging', 'failed', 'requests', 'validation'):
                 (root / folder).mkdir(exist_ok=True)
             try:
+                if self.state.data.get('halted'):
+                    raise FactoryError('Run halted after local validation failure; inspect diagnostics and prepare a new reviewed run')
                 self.reconcile()
                 while sum(c['status'] == 'accepted' for c in self.state.data['candidates']) < target:
                     if self.state.remaining_time() <= 0:
@@ -87,6 +94,8 @@ class Factory:
                         self.state.data['candidates'].append(candidate)
                         self.state.save()
                     self.step(candidate)
+                    if self.state.data.get('halted'):
+                        break
             finally:
                 self.state.save()
                 atomic_json(root / 'report.json', report(root))
@@ -125,9 +134,10 @@ class Factory:
         try:
             phase = candidate['status']
             if phase == 'author':
-                proposal = self.journal.call('author', author_prompt(contracts.PROPOSAL, current_inventory,
-                    candidate.get('feedback'), candidate.get('proposal')), contracts.PROPOSAL, key + '-author')
+                proposal = self.journal.call('author', self.author_request(current_inventory, candidate),
+                                            contracts.PROPOSAL, key + '-author')
                 validate_scope(proposal)
+                self.validate_proposal(proposal)
                 novelty(proposal, current_inventory, config.limits['similarity_threshold'])
                 candidate.update(proposal=proposal, task_id=proposal['task_id'], status='review')
             elif phase == 'review':
@@ -143,6 +153,15 @@ class Factory:
                     approved_proposal=candidate['proposal']), contracts.IMPLEMENTATION, key + '-implement')
                 candidate.update(implementation=implementation, status='audit')
             elif phase == 'audit':
+                # Parse only: reject structural defects before spending a reviewer call.
+                # Keep this at the audit boundary so resumed candidates are checked too.
+                try:
+                    check_implementation(candidate['implementation'])
+                except ContractError as exc:
+                    self.fail(candidate, {'structural_validation': {
+                        'code': 'IMPLEMENTATION_STRUCTURE', 'detail': str(exc)}})
+                    self.state.save()
+                    return
                 audit = self.journal.call('reviewer', audit_prompt(contracts.AUDIT, candidate['proposal'], candidate['implementation']),
                                           contracts.AUDIT, key + '-audit')
                 candidate['audit'] = audit
@@ -182,9 +201,20 @@ class Factory:
                 raise FactoryError('Unknown workflow phase')
         except BudgetError:
             raise
-        except FactoryError as exc:
+        except (FactoryError, OSError, ValueError) as exc:
+            if not isinstance(exc, FactoryError) and not (
+                candidate['status'] == 'validate' and config.execution['stop_on_validation_failure']
+            ):
+                raise
             self.fail(candidate, {'error': str(exc)})
         self.state.save()
+
+    def author_request(self, current_inventory, candidate):
+        return author_prompt(contracts.PROPOSAL, current_inventory,
+                             candidate.get('feedback'), candidate.get('proposal'))
+
+    def validate_proposal(self, proposal):
+        pass
 
     def fail(self, candidate, feedback):
         key = self.key(candidate)
@@ -194,4 +224,10 @@ class Factory:
         if stage.exists():
             publish(stage, self.config.output / 'failed' / key)
         event(self.config.output, 'candidate_failed', request_key=key, feedback=feedback)
-        revise_or_reject(candidate, feedback, self.config.limits['max_revisions'])
+        if candidate['status'] == 'validate' and self.config.execution['stop_on_validation_failure']:
+            reason = 'Local validation failed; workflow halted without revision or replacement'
+            candidate.update(status='rejected', reason=reason, feedback=feedback)
+            self.state.data['halted'] = {'request': key, 'reason': reason}
+            self.state.save()
+        else:
+            revise_or_reject(candidate, feedback, self.config.limits['max_revisions'])

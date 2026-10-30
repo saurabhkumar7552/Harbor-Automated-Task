@@ -10,12 +10,49 @@ class CodexAdapter(Adapter):
     allowed_args = {'--oss': 0, '--local-provider': 1}
     requires_launcher = True
 
+    def __init__(self, role, *, strict_isolation=False, forbidden_roots=()):
+        super().__init__(role)
+        self._strict_isolation = strict_isolation
+        self.forbidden_roots = tuple(forbidden_roots)
+
+    @property
+    def strict_isolation(self):
+        return self._strict_isolation
+
+    def inspect(self):
+        if not self.strict_isolation:
+            return super().inspect()
+        from ..isolation import assess_isolation
+        return {**assess_isolation(self.role, self.forbidden_roots),
+                'available': False, 'launcher_required': True, 'strict_isolation': True}
+
+    def _require_confined_transport(self):
+        from ..isolation import require_strict_isolation, HEALTH_BLOCKER
+        require_strict_isolation(self.role, self.forbidden_roots)
+        # Defense in depth: a static checker returning normally never selects
+        # legacy transport. Confined health/transport is outside this patch.
+        raise ConfigError(HEALTH_BLOCKER)
+
+    def preflight(self):
+        if self.strict_isolation:
+            self._require_confined_transport()
+        else:
+            return super().preflight()
+
+    def invoke(self, prompt, schema, workspace, timeout=None):
+        if self.strict_isolation:
+            self._require_confined_transport()  # Fresh assessment on every call.
+        else:
+            return super().invoke(prompt, schema, workspace, timeout)
+
     def check_effort(self):
         # This is a TOML configuration key, not a guessed CLI flag. Provider must support its value.
         if self.role.effort and self.role.effort not in {'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'}:
             raise ConfigError('Unsupported Codex reasoning effort; confirm model support with its provider')
 
     def command(self, schema, workspace):
+        if self.strict_isolation:
+            self._require_confined_transport()  # No schema write or bare-host argv.
         schema_path = workspace / 'response-schema.json'
         schema_path.write_text(json.dumps(schema), encoding='utf-8')
         args = [self.role.executable, 'exec', '--ignore-user-config', '--ignore-rules',

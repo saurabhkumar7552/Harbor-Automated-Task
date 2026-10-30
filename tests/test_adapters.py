@@ -17,6 +17,16 @@ def role(adapter):
 
 
 class Adapters(unittest.TestCase):
+    def test_legacy_codex_inspection_and_invocation_keep_existing_transport(self):
+        adapter = CodexAdapter(role('codex'))
+        self.assertFalse(adapter.strict_isolation)
+        with patch('stem_factory.adapters.base.Adapter.inspect', return_value={'legacy': True}) as inspect:
+            self.assertEqual(adapter.inspect(), {'legacy': True})
+            inspect.assert_called_once_with()
+        with patch('stem_factory.adapters.base.Adapter.invoke', return_value='MOCK legacy response') as invoke:
+            self.assertEqual(adapter.invoke('MOCK', {}, Path('MOCK')), 'MOCK legacy response')
+            invoke.assert_called_once_with('MOCK', {}, Path('MOCK'), None)
+
     def test_codex_jsonl_usage(self):
         text = '\n'.join(json.dumps(v) for v in [
             {'type': 'thread.started'},

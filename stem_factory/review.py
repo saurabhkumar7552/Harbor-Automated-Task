@@ -11,6 +11,8 @@ def review_prompt(schema, proposal, existing):
                   'Assess solvability, completeness, ambiguity, edge cases, tests and novelty against '
                   'the supplied inventory (including semantic similarity beyond word overlap). '
                   'PASS only if medium, complete, solvable, STEM relevant and adequately testable. '
+                  'Check that the validation plan is implementable under the shared verifier contract; '
+                  'reject unsupported enforcement claims without removing the underlying requirement. '
                   'List every defect and required change. Never approve because an author says medium.',
                   schema, specification=specification, existing_tasks=existing)
 
@@ -28,6 +30,10 @@ def audit_prompt(schema, proposal, implementation):
                   'test answers. Check every requirement is tested, expected values independently '
                   'make sense, tests are deterministic and cannot always pass, mutants represent at '
                   'least three distinct plausible conceptual errors rather than syntax/import failures. '
+                  'Apply the shared verifier contract to the actual tests, including fresh guarded import, '
+                  'bounded child checks, seeded local data, independent oracles, exact public tolerances '
+                  'and real named-test traceability. A requested check is not evidence it exists. '
+                  'Public API declarations alone are not reference-solution leakage. '
                   'Reference success is not proof of medium difficulty. FAIL for any defect.', schema,
                   specification={k: v for k, v in proposal.items() if k != 'difficulty_rationale'},
                   implementation=implementation)

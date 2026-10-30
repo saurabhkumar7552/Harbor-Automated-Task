@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "repository": ".",
+  "existing_tasks": "./tasks",
+  "output": "./generation-output",
+  "adapters": {},
+  "roles": {
+    "author": {
+      "adapter": "codex",
+      "executable": "codex",
+      "model": "REPLACE_WITH_VERIFIED_AUTHOR_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "required_env": [],
+      "cwd": null,
+      "launcher": [],
+      "launcher_evidence": null
+    },
+    "reviewer": {
+      "adapter": "codex",
+      "executable": "codex",
+      "model": "REPLACE_WITH_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "required_env": [],
+      "cwd": null,
+      "launcher": [],
+      "launcher_evidence": null
+    },
+    "implementer": {
+      "adapter": "codex",
+      "executable": "codex",
+      "model": "REPLACE_WITH_VERIFIED_AUTHOR_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "required_env": [],
+      "cwd": null,
+      "launcher": [],
+      "launcher_evidence": null
+    }
+  },
+  "limits": {
+    "max_candidates": 15,
+    "max_revisions": 2,
+    "max_calls": 100,
+    "max_prompt_bytes": 1048576,
+    "max_unknown_cost_calls": 100,
+    "max_run_seconds": 7200,
+    "max_cost_usd": null,
+    "similarity_threshold": 0.72
+  },
+  "validation": {
+    "docker_executable": "docker",
+    "image": "python:3.13.0-slim-bookworm",
+    "timeout": 60,
+    "max_output_bytes": 1048576,
+    "harbor_python": null,
+    "harbor_site_packages": null
+  },
+  "execution": {
+    "live_enabled": false,
+    "stop_on_validation_failure": true
+  },
+  "generation": {
+    "transport": "docker",
+    "docker": {
+      "image": null,
+      "auth_volume": null,
+      "cpus": 1,
+      "memory_mb": 1024,
+      "pids_limit": 128
+    },
+    "subjects": [
+      "Mathematics",
+      "Physics",
+      "Chemistry",
+      "Engineering",
+      "Statistics"
+    ],
+    "entitlements": {
+      "author": {
+        "model": "REPLACE_WITH_VERIFIED_AUTHOR_MODEL_ID",
+        "source": "Replace with a non-secret account confirmation reference."
+      },
+      "reviewer": {
+        "model": "REPLACE_WITH_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID",
+        "source": "Replace with a non-secret account confirmation reference."
+      }
+    }
+  }
+}

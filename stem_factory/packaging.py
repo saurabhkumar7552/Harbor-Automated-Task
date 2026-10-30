@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import re
 import tomllib
+import io
+import textwrap
+import tokenize
 import sys
 from .errors import ContractError, FactoryError
 from .reporting import atomic_json, no_secrets, tree_hash
@@ -101,33 +104,161 @@ def templates(proposal, implementation, image):
     }
 
 
-def check_implementation(bundle):
-    for key in ('reference_python', 'tests_python'):
+def _parse_python(source):
+    try:
+        return ast.parse(source)
+    except (SyntaxError, ValueError, TypeError, RecursionError) as exc:
+        raise ContractError('Cannot assess Python source for leakage') from exc
+
+
+def _parse_public_python(source):
+    try:
+        return _parse_python(source)
+    except ContractError as exc:
+        if not isinstance(exc.__cause__, IndentationError):
+            raise
+        # A complete public API header may intentionally omit its body. Permit
+        # only a single declaration after adding a placeholder, never other
+        # incomplete statements or a partially supplied implementation body.
+        parsed = _parse_python(source + '\n    pass\n')
+        if (len(parsed.body) != 1 or not isinstance(parsed.body[0],
+                (ast.FunctionDef, ast.AsyncFunctionDef)) or
+                len(parsed.body[0].body) != 1 or
+                not isinstance(parsed.body[0].body[0], ast.Pass)):
+            raise ContractError('Cannot assess public Python source for leakage')
+        return parsed
+
+
+def _declaration_lines(source, tree):
+    """Only complete header-only physical lines, never inline bodies/decorators.
+
+    Token boundaries distinguish a signature colon from annotation/default colons.
+    Do not exempt executable defaults or annotations; those can contain a solution.
+    """
+    safe = set()
+    lines = source.splitlines()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        header = '\n'.join(lines[node.lineno - 1:node.body[0].lineno])
+        # Defaults/annotations that execute calls or expressions are not plain API.
+        annotations = [a.annotation for a in (*node.args.posonlyargs, *node.args.args,
+                       *node.args.kwonlyargs) if a.annotation is not None]
+        annotations += [a.annotation for a in (node.args.vararg, node.args.kwarg)
+                        if a is not None and a.annotation is not None]
+        annotations += [node.returns] if node.returns is not None else []
+        defaults = [*node.args.defaults, *[d for d in node.args.kw_defaults if d is not None]]
+        if any(not isinstance(d, ast.Constant) for d in defaults):
+            continue
+        if any(isinstance(n, (ast.Call, ast.Lambda, ast.NamedExpr, ast.ListComp,
+                             ast.SetComp, ast.DictComp, ast.GeneratorExp))
+               for a in annotations for n in ast.walk(a)):
+            continue
         try:
-            ast.parse(bundle[key])
-        except SyntaxError as exc:
-            raise ContractError(f'{key}: Python syntax error') from exc
-    tree = ast.parse(bundle['tests_python'])
+            depth = 0
+            for token in tokenize.generate_tokens(io.StringIO(textwrap.dedent(header)).readline):
+                if token.type == tokenize.OP:
+                    if token.string in ('(', '[', '{'):
+                        depth += 1
+                    elif token.string in (')', ']', '}'):
+                        depth -= 1
+                    elif token.string == ':' and depth == 0:
+                        end = node.lineno + token.end[0] - 1
+                        # An inline body is never exempt, even if it is very long.
+                        if node.body[0].lineno > end:
+                            safe.update(range(node.lineno, end + 1))
+                            # Trailing comments retain the original exact-line protection.
+                            safe.difference_update(node.lineno + t.start[0] - 1
+                                for t in tokenize.generate_tokens(io.StringIO(
+                                    '\n'.join(textwrap.dedent(header).splitlines()[:token.end[0]])
+                                    + '\n    pass\n').readline)
+                                if t.type == tokenize.COMMENT)
+                        break
+        except (tokenize.TokenError, IndentationError, SyntaxError) as exc:
+            raise ContractError('Cannot assess function declaration for leakage') from exc
+    return safe
+
+
+def _public_code(public):
+    """Extract explicit Python examples, not arbitrary natural-language prose.
+
+    The original long-line check still covers text outside these regions.
+    Unfenced function declarations are parsed with a placeholder only when their
+    real body is absent. A malformed declared Python region fails closed.
+    """
+    lines = public.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        fence = re.fullmatch(r'\s*(`{3,}|~{3,})(.*)', line)
+        if fence:
+            marker, _ = fence.groups()
+            start = index + 1
+            index = start
+            while index < len(lines) and not re.fullmatch(r'\s*' + re.escape(marker[0]) +
+                                                         '{' + str(len(marker)) + r',}\s*', lines[index]):
+                index += 1
+            if index == len(lines):
+                raise ContractError('Unclosed public code fence; cannot assess leakage')
+            # Parse every declared code region, even if mislabeled as another
+            # language; do not let a label bypass solution-body comparison.
+            yield textwrap.dedent('\n'.join(lines[start:index]))
+        elif re.match(r'\s*(?:(?:async\s+)?def\s+\w+\s*\(|'
+                      r'(?:return|raise|assert)\s+|[A-Za-z_]\w*\s*=(?!=))', line):
+            start = index
+            # Include continuation lines and indented bodies up to the next prose.
+            index += 1
+            while index < len(lines) and (lines[index].startswith((' ', '\t')) or
+                                           lines[index].startswith(')')):
+                index += 1
+            code = textwrap.dedent('\n'.join(lines[start:index]))
+            if code.rstrip().endswith(':'):
+                code += '\n    pass'
+            yield code
+            continue
+        index += 1
+    # Inline code is assessed when it is a statement, not an API name/type label.
+    for inline in re.findall(r'(?<!`)`([^`\n]+)`(?!`)', public):
+        if re.match(r'(?:return|raise|assert|def|async def)\b|\w+\s*=(?!=)', inline):
+            yield inline + ('\n    pass' if inline.rstrip().endswith(':') else '')
+
+
+def check_public_leakage(reference, public):
+    tree = _parse_python(reference)
+    safe = _declaration_lines(reference, tree)
+    # Preserve the existing exact-line protection outside parsed API headers.
+    for number, line in enumerate(reference.splitlines(), 1):
+        if number not in safe and len(line.strip()) > 70 and line.strip() in public:
+            raise ContractError('Reference code appears in public instructions')
+    # AST comparison also detects short bodies and formatting/comment variations.
+    excluded = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import,
+                ast.ImportFrom, ast.Pass)
+    def statements(parsed):
+        return {ast.dump(n, include_attributes=False) for n in ast.walk(parsed)
+                if isinstance(n, ast.stmt) and not isinstance(n, excluded)
+                and not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))}
+    private = statements(tree)
+    for code in _public_code(public):
+        if private & statements(_parse_public_python(code)):
+            raise ContractError('Reference solution statement appears in public instructions')
+
+
+def check_implementation(bundle):
+    parsed = {key: _parse_python(bundle[key]) for key in ('reference_python', 'tests_python')}
+    tree = parsed['tests_python']
     tests = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name.startswith('test_')]
     if len(set(tests)) < 8:
         raise ContractError('At least eight named unittest test methods required')
     codes = set()
     for mutant in bundle['mutants']:
-        try:
-            ast.parse(mutant['code'])
-        except SyntaxError as exc:
-            raise ContractError('Mutants must be valid Python, not syntax errors') from exc
-        code = ast.dump(ast.parse(mutant['code']))
-        if code in codes or code == ast.dump(ast.parse(bundle['reference_python'])):
+        code = ast.dump(_parse_python(mutant['code']))
+        if code in codes or code == ast.dump(parsed['reference_python']):
             raise ContractError('Duplicate mutant or identical reference')
         codes.add(code)
     public = bundle['instruction']
     if '/work/task.py' not in public or any(v in public for v in ('/solution/', '/tests/', 'reference_python')):
         raise ContractError('Instruction omits output contract or leaks private paths')
-    # Mechanical exact-code leakage check plus independent semantic audit.
-    for line in bundle['reference_python'].splitlines():
-        if len(line.strip()) > 70 and line.strip() in public:
-            raise ContractError('Reference code appears in public instructions')
+    check_public_leakage(bundle['reference_python'], public)
 
 
 def create_package(directory, proposal, implementation, image, evidence):

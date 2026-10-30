@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import time
 from .errors import BudgetError, FactoryError
+from .config import require_live_execution
 from .reporting import atomic_json, digest, event
 
 
@@ -82,6 +83,7 @@ class Journal:
     def call(self, role_name, prompt, schema, key):
         from .contracts import validate
         from .reporting import no_secrets
+        require_live_execution(self.state.config)
         state = self.state
         directory = state.root / 'requests' / key
         identity = digest({'role': role_name, 'prompt': prompt, 'schema': schema})

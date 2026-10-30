@@ -65,6 +65,7 @@ def report(root):
         return {'accepted': 0, 'status': 'not-started', 'cost': 'unknown; no recorded calls'}
     state = json.loads(path.read_text(encoding='utf-8'))
     return {'accepted': sum(c['status'] == 'accepted' for c in state['candidates']),
+            'halted': state.get('halted'),
             'candidates': [{'task_id': c.get('task_id'), 'status': c['status'], 'reason': c.get('reason')}
                            for c in state['candidates']],
             'calls_reserved': state['calls'], 'known_cost_usd': state['known_cost_usd'],

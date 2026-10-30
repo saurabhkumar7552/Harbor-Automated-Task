@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import sys
 from .adapters import create
-from .config import load, require_models
+from .config import load, require_models, require_live_execution
 from .errors import FactoryError
 from .factory import Factory, dry_plan
 from .packaging import static_check
@@ -21,11 +21,17 @@ def parser():
     run.add_argument('--dry-run', action='store_true')
     run.add_argument('--recover-lock', action='store_true')
     run.add_argument('--retry-uncertain', action='store_true')
+    generate = sub.add_parser('generate', help='Codex-only generation; no Harbor dependency or evaluations')
+    generate.add_argument('--target', type=int, default=5)
+    generate.add_argument('--dry-run', action='store_true')
+    generate.add_argument('--recover-lock', action='store_true')
+    generate.add_argument('--retry-uncertain', action='store_true')
     validate = sub.add_parser('validate')
     validate.add_argument('--package', type=Path)
     validate.add_argument('--static-only', action='store_true')
     validate.add_argument('--dry-run', action='store_true')
     sub.add_parser('report')
+    sub.add_parser('generation-health', help='Docker mode only: start offline credential-free CLI version/help containers')
     return result
 
 
@@ -34,8 +40,27 @@ def main(argv=None):
     try:
         config = load(args.config)
         code = 0
-        if args.command == 'doctor':
+        if config.generation is not None and args.command not in ('generate', 'report', 'generation-health'):
+            raise FactoryError('Generation supports generate/report and Docker generation-health only; use generate --dry-run for static preflight')
+        if args.command == 'generation-health':
+            if config.generation is None or config.generation.get('transport') != 'docker':
+                raise FactoryError('generation-health requires explicitly selected Docker generation transport')
+            from .adapters.docker_codex import DockerCodexAdapter
+            output = DockerCodexAdapter(config, config.roles['author']).check_image()
+        elif args.command == 'generate':
+            from .generation import GenerationFactory, preflight
+            output = preflight(config, args.target)
+            if not args.dry_run:
+                output = GenerationFactory(config, retry_uncertain=args.retry_uncertain).run(args.target, args.recover_lock)
+                code = 0 if output['accepted'] >= args.target else 2
+        elif args.command == 'doctor':
             output = {'python': sys.version, 'config_valid': True, 'roles': {}, 'local_validation': Validator(config).doctor()}
+            output['execution'] = config.execution
+            try:
+                require_live_execution(config)
+            except FactoryError as exc:
+                output['execution_action'] = str(exc)
+                code = 2
             for name, role in config.roles.items():
                 adapter = create(role, config.adapters)
                 try:

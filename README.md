@@ -1,5 +1,13 @@
 # STEM Task Factory
 
+For the separate, live-disabled Codex-only five-task generation workflow, see
+[generation-only preparation](docs/GENERATION-ONLY.md). Its `generate --dry-run`
+preflight requires neither Docker nor Harbor and makes no model calls.
+The generation profile now explicitly selects the user-approved
+[ordinary Docker workflow](docs/DOCKER-GENERATION.md); image health and saved CLI
+sign-in checks passed. Runtime boundary validation remains pending and live execution is disabled. Existing strict-isolation profiles retain
+their original gate.
+
 Author, independently review, implement and locally validate Harbor STEM tasks with
 one command after configuring existing tools and model access:
 
@@ -66,6 +74,26 @@ Add `/factory-output/` to your project's ignore rules yourself if desired. Reusi
 an existing output directory with changed config is deliberately rejected.
 
 ## Configure models and validation
+
+For the controlled one-candidate pilot, see [pilot preparation](docs/PILOT.md).
+`config/pilot.models.yaml` is a schema-valid, **live-disabled** configuration with
+one candidate, two review revisions, twelve model calls maximum and a fresh output
+path. Its model placeholders deliberately remain unverified. A passing dry-run
+does not authorize spending or prove account access.
+
+Optional top-level `execution` controls are strict booleans:
+
+```json
+{"execution": {"live_enabled": false, "stop_on_validation_failure": true}}
+```
+
+`live_enabled=false` blocks runs before external probes or output creation and
+also blocks request-journal invocations. `stop_on_validation_failure=true` preserves
+failed artifacts, rejects the candidate, halts the whole run and refuses automatic
+resume after local validation failure. Review failures still use `max_revisions`.
+For compatibility, omitted controls default to true and false respectively.
+Neither control is a currency spending cap; the pilot must remain disabled until
+the INR 100 ceiling can be enforced and the user explicitly approves execution.
 
 Edit `config/models.yaml`, or adapt `config/models.example.yaml`. Relative paths
 resolve against the configuration file's directory. The local configuration points

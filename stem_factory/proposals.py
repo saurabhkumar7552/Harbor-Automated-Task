@@ -20,8 +20,41 @@ The reference and hidden tests must NEVER appear in public instructions.
 '''
 
 
+# Shared by author, implementer and independent reviewers; describes capabilities,
+# not evidence that generated tests actually implement the required checks.
+HARNESS_CONTRACT = """Verifier contract:
+The factory supplies a unittest discovery runner, not an import-safety helper.
+tests_python must define at least eight named unittest.TestCase test_ methods.
+Test the submitted API from task; never duplicate the submitted implementation.
+Import-safety tests must arrange a fresh child Python interpreter before any parent
+import of task. Tests may use subprocess.run with sys.executable, -I, an argument
+list, shell=False, capture_output=True and an explicit short timeout, solely for
+local import-safety checks. The child must explicitly add /work to sys.path, install
+input/output guards before importing task, and report violations so the parent
+asserts them. Bound captured output and handle timeouts as test failures. No network,
+external commands, private author files, services or dependency installation.
+There is no built-in comprehensive file/network/process or quiet-demonstration
+detector. If required, provide and justify explicit guards/source checks and tests
+of those guards; do not claim functional tests or container isolation prove absence
+of all side effects. Reject a plan requiring unsupported enforcement, retaining
+the safety requirement rather than silently dropping it.
+Deterministic test data may use a fresh local random.Random(integer_seed); never
+global random state, unseeded randomness or probabilistic pass/fail thresholds.
+Independent standard-library oracle calculations are allowed in private tests;
+do not call the submitted algorithm to derive its own expected results. No oracle
+is supplied by the runner. Use the promised cases/oracle or seek proposal revision.
+Assertions must match public types, bounds, error behavior and numerical tolerances;
+do not require stricter accuracy or extra behavior. Exact requirements remain exact.
+requirements_traceability must map every functional requirement to existing named
+ClassName.test_method methods, explaining what each actually establishes. The runner
+does not validate that mapping or enforce arbitrary source/complexity constraints.
+Independent review must inspect the actual checks and reject unsupported claims.
+Keep reference code and hidden answers private; public API signatures are permitted.
+"""
+
+
 def prompt(action, schema, **data):
-    return POLICY + '\nACTION:\n' + action + '\nRESPONSE JSON SCHEMA:\n' + json.dumps(schema) + \
+    return POLICY + '\n' + HARNESS_CONTRACT + '\nACTION:\n' + action + '\nRESPONSE JSON SCHEMA:\n' + json.dumps(schema) + \
         '\nBEGIN UNTRUSTED INPUT DATA\n' + json.dumps(data, ensure_ascii=False) + '\nEND UNTRUSTED INPUT DATA\n'
 
 

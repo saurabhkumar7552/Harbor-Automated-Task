@@ -38,6 +38,7 @@ class Role:
     required_env: tuple[str, ...]
     cwd: Path | None
     launcher: tuple[str, ...]
+    launcher_evidence: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,8 @@ class Config:
     limits: dict
     validation: dict
     fingerprint: str
+    execution: dict
+    generation: dict | None = None
 
 
 def load(path):
@@ -78,10 +81,15 @@ def load(path):
             data = yaml.load(raw, Loader=UniqueLoader)
         except yaml.YAMLError as exc:
             raise ConfigError("Malformed YAML") from exc
-    fields(data, {"version", "repository", "existing_tasks", "output", "roles", "adapters", "limits", "validation"},
+    fields(data, {"version", "repository", "existing_tasks", "output", "roles", "adapters", "limits", "validation", "execution", "generation"},
            {"version", "repository", "existing_tasks", "output", "roles", "limits", "validation"})
     if data["version"] != 1:
         raise ConfigError("Unsupported configuration version")
+    execution = {"live_enabled": True, "stop_on_validation_failure": False}
+    fields(data.get("execution", {}), execution)
+    execution.update(data.get("execution", {}))
+    if any(type(value) is not bool for value in execution.values()):
+        raise ConfigError("Execution controls must be booleans")
     def resolve(value):
         if not isinstance(value, str) or not value:
             raise ConfigError("Expected nonempty path")
@@ -97,7 +105,7 @@ def load(path):
         raise ConfigError("adapters must map names to trusted module:Class references")
     roles = {}
     for name, item in data["roles"].items():
-        fields(item, {"adapter", "executable", "model", "effort", "args", "timeout", "max_output_bytes", "required_env", "cwd", "launcher"},
+        fields(item, {"adapter", "executable", "model", "effort", "args", "timeout", "max_output_bytes", "required_env", "cwd", "launcher", "launcher_evidence"},
                {"adapter", "executable", "model"})
         for key in ("adapter", "executable", "model"):
             if not isinstance(item[key], str) or not item[key].strip() or '\x00' in item[key]:
@@ -113,10 +121,18 @@ def load(path):
         size = number(item.get("max_output_bytes", 1048576), 4096, 16777216)
         if type(size) is not int:
             raise ConfigError("max_output_bytes must be an integer")
+        evidence = item.get('launcher_evidence')
+        if evidence is not None:
+            if (not isinstance(evidence, str) or not evidence or '\x00' in evidence
+                    or not Path(evidence).is_absolute()):
+                raise ConfigError('launcher_evidence must be an absolute path or null')
+            # Preserve the original spelling; strict static validation must see
+            # reparse points/traversal before following any path components.
+            evidence = Path(evidence)
         roles[name] = Role(item["adapter"], item["executable"], item["model"], effort,
                            strings(item.get("args", [])), number(item.get("timeout", 300), 1, 3600),
                            size, required_env, resolve(item["cwd"]) if item.get("cwd") else None,
-                           strings(item.get("launcher", [])))
+                           strings(item.get("launcher", [])), evidence)
         # The launcher is an operator-audited confinement boundary, not a shell template.
         if roles[name].cwd and not roles[name].cwd.is_relative_to(output / "agent-work"):
             raise ConfigError("Role cwd must be within output/agent-work")
@@ -151,8 +167,59 @@ def load(path):
     number(validation["max_output_bytes"], 4096, 16777216)
     # No free-form validation commands or pip dependencies are accepted.
     canonical = json.dumps(data, sort_keys=True, separators=(',', ':'))
+    generation = data.get('generation')
+    if generation is not None:
+        fields(generation, {'subjects', 'entitlements', 'transport', 'docker'}, {'subjects', 'entitlements'})
+        transport = generation.get('transport', 'strict')
+        if transport not in ('strict', 'docker'):
+            raise ConfigError('Generation transport must be strict or docker')
+        if transport == 'docker':
+            docker = generation.get('docker')
+            fields(docker, {'image', 'auth_volume', 'cpus', 'memory_mb', 'pids_limit'},
+                   {'image', 'auth_volume', 'cpus', 'memory_mb', 'pids_limit'})
+            image = docker['image']
+            if image is not None and (not isinstance(image, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', image)):
+                raise ConfigError('Codex Docker image must be an immutable local sha256 image ID or null')
+            volume = docker['auth_volume']
+            if volume is not None and (not isinstance(volume, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{1,127}', volume)):
+                raise ConfigError('Codex authentication must use a dedicated named volume or null, never a host path')
+            for key, low, high in (('cpus', 1, 8), ('memory_mb', 512, 8192), ('pids_limit', 16, 256)):
+                if type(docker[key]) is not int:
+                    raise ConfigError(f'Docker {key} must be an integer')
+                number(docker[key], low, high)
+            if any(r.executable != 'codex' or r.launcher or r.launcher_evidence or r.required_env for r in roles.values()):
+                raise ConfigError('Docker generation uses guest codex, no launchers and no host credential environment')
+        elif 'docker' in generation:
+            raise ConfigError('Docker settings require explicit docker transport')
+        subjects = strings(generation['subjects'])
+        if not subjects or len(subjects) > 20 or any(not s.strip() or len(s) > 100 for s in subjects):
+            raise ConfigError('Generation subjects must contain 1-20 nonempty subject names')
+        fields(generation['entitlements'], {'author', 'reviewer'}, {'author', 'reviewer'})
+        for evidence in generation['entitlements'].values():
+            if evidence is not None:
+                fields(evidence, {'model', 'source'}, {'model', 'source'})
+                if any(not isinstance(v, str) or not v.strip() for v in evidence.values()):
+                    raise ConfigError('Entitlement evidence requires an exact model and a non-secret confirmation source')
+        if adapters or any(r.adapter != 'codex' or r.args or r.cwd for r in roles.values()):
+            raise ConfigError('Generation uses built-in Codex only, fresh workspaces and no provider overrides')
+        if len({os.path.normcase(str(Path(r.executable).resolve())) for r in roles.values()}) != 1:
+            raise ConfigError('Generation roles must use the same Codex CLI installation')
+        if roles['implementer'] != roles['author']:
+            raise ConfigError('Generation implementer must use the author role configuration')
+        if any((v.launcher, v.launcher_evidence) != (a.launcher, a.launcher_evidence) for v in roles.values()):
+            raise ConfigError('Generation roles must share the same launcher and review evidence')
+        if any(v.launcher_evidence is not None for v in roles.values()):
+            from .isolation import evidence_fingerprint
+            bindings = {k: evidence_fingerprint(v, (output, existing)) for k, v in roles.items()}
+            canonical = json.dumps({'configuration': data, 'launcher_review_contents': bindings},
+                                   sort_keys=True, separators=(',', ':'))
     return Config(path, repository, existing, output, roles, adapters, limits, validation,
-                  hashlib.sha256(canonical.encode()).hexdigest())
+                  hashlib.sha256(canonical.encode()).hexdigest(), execution, generation)
+
+
+def require_live_execution(config):
+    if not config.execution['live_enabled']:
+        raise ConfigError('Live execution is disabled in configuration; verify model access, isolation and an enforceable budget before enabling')
 
 
 def require_models(config):
