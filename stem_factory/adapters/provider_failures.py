@@ -1,4 +1,5 @@
 """Recognize provider account and usage blocks that must stop a generation run."""
+import json
 from ..errors import RunHaltError
 
 
@@ -22,8 +23,31 @@ USAGE_MARKERS = (
 
 
 def stop_if_account_blocked(output):
-    """Raise a run-stopping error for known authentication or quota failures."""
-    text = str(output).casefold()
+    """Inspect provider errors only; never scan successful structured task content.
+
+    Plain text is accepted for transport failures and explicit error messages.
+    Callers must not pass successful unstructured model answers here.
+    """
+    errors = []
+    raw = str(output)
+    try:
+        records = [json.loads(raw)]
+    except (ValueError, TypeError):
+        records = []
+        for line in raw.splitlines():
+            try:
+                records.append(json.loads(line))
+            except (ValueError, TypeError):
+                errors.append(line)
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get('type') in ('error', 'turn.failed'):
+            errors.append(json.dumps(record))
+        elif record.get('is_error') or record.get('error'):
+            errors.append(json.dumps(record.get('error') or record.get('errors') or
+                                     record.get('result') or record.get('message') or record))
+    text = '\n'.join(errors).casefold()
     if any(marker in text for marker in AUTH_MARKERS):
         raise RunHaltError('Authentication prevented a model call; run stopped immediately')
     if any(marker in text for marker in USAGE_MARKERS):

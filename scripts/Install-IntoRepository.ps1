@@ -7,10 +7,27 @@ if (-not (Test-Path -LiteralPath (Join-Path $repositoryTarget 'tasks') -PathType
     throw 'Target must be the benchmark project directory containing tasks/.'
 }
 if ($repositoryTarget.TrimEnd('\') -eq $factorySource.TrimEnd('\')) { throw 'Source and target must differ.' }
-$allFiles = Get-ChildItem -LiteralPath $factorySource -Recurse -File | Where-Object {
-    $_.FullName -notmatch '\\(__pycache__|factory-output|build|dist)\\' -and $_.Name -ne '.gitignore'
-}
+$allFiles = @(
+    foreach ($folder in @('stem_factory', 'tests', 'scripts', 'docker')) {
+        Get-ChildItem -LiteralPath (Join-Path $factorySource $folder) -Recurse -File |
+            Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]' }
+    }
+    foreach ($relative in @('README.md', 'pyproject.toml', 'config/models.yaml',
+            'config/models.example.yaml', 'config/generation.models.yaml', 'config/pilot.models.yaml')) {
+        $filePath = Join-Path $factorySource $relative
+        if (Test-Path -LiteralPath $filePath -PathType Leaf) { Get-Item -LiteralPath $filePath }
+    }
+    Get-ChildItem -LiteralPath (Join-Path $factorySource 'docs') -File -Filter '*.md'
+)
 $copyPlan = foreach ($file in $allFiles) {
+    $sourceAncestor = $file.FullName
+    while ($sourceAncestor -and $sourceAncestor.StartsWith($factorySource, [StringComparison]::OrdinalIgnoreCase)) {
+        if ((Get-Item -LiteralPath $sourceAncestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Source reparse point: $sourceAncestor"
+        }
+        if ($sourceAncestor -eq $factorySource) { break }
+        $sourceAncestor = Split-Path -Parent $sourceAncestor
+    }
     $relativeFile = $file.FullName.Substring($factorySource.TrimEnd('\').Length + 1)
     $targetFile = [IO.Path]::GetFullPath((Join-Path $repositoryTarget $relativeFile))
     if (-not $targetFile.StartsWith($repositoryTarget.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {

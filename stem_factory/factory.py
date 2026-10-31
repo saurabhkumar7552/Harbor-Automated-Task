@@ -54,11 +54,19 @@ def dry_plan(config, target):
 
 
 class Factory:
-    def __init__(self, config, *, retry_uncertain=False, validator=None, adapters=None):
+    @property
+    def repair_limit(self):
+        if self.config.generation is not None:
+            return min(1, self.config.limits['max_revisions'],
+                       self.config.generation.get('workflow', {}).get('author_repairs', 1))
+        return self.config.limits['max_revisions']
+
+    def __init__(self, config, *, retry_uncertain=False, retry_account_errors=False, validator=None, adapters=None):
         self.config = config
         self.adapters = adapters or {k: create(v, config.adapters) for k, v in config.roles.items()}
         self.validator = validator or Validator(config)
         self.retry_uncertain = retry_uncertain
+        self.retry_account_errors = retry_account_errors
 
     def preflight(self):
         require_live_execution(self.config)
@@ -75,15 +83,19 @@ class Factory:
         root = self.config.output
         with RunLock(root, recover_lock):
             self.state = State(self.config)
-            self.journal = Journal(self.state, self.adapters, self.retry_uncertain)
+            self.journal = Journal(self.state, self.adapters, self.retry_uncertain,
+                                   retry_account_errors=self.retry_account_errors)
             for folder in ('accepted', 'staging', 'failed', 'requests', 'validation'):
                 (root / folder).mkdir(exist_ok=True)
             try:
                 if self.state.data.get('halted'):
                     raise FactoryError('Run halted after local validation failure; inspect diagnostics and prepare a new reviewed run')
+                self.state.data.pop('last_stop', None)
                 self.reconcile()
-                while sum(c['status'] == 'accepted' for c in self.state.data['candidates']) < target:
-                    candidate = next((c for c in self.state.data['candidates'] if c['status'] not in ('accepted', 'rejected')), None)
+                while sum(c['status'] == 'accepted' or (
+                        self.config.generation is not None and 'request' in self.config.generation
+                        and c['status'] == 'needs_attention') for c in self.state.data['candidates']) < target:
+                    candidate = next((c for c in self.state.data['candidates'] if c['status'] not in ('accepted', 'rejected', 'needs_attention')), None)
                     if candidate is None:
                         candidate_limit = self.config.limits['max_candidates']
                         if candidate_limit is not None and len(self.state.data['candidates']) >= candidate_limit:
@@ -101,6 +113,9 @@ class Factory:
                     self.step(candidate)
                     if self.state.data.get('halted'):
                         break
+            except RunHaltError as exc:
+                self.state.data['last_stop'] = str(exc)
+                raise
             finally:
                 self.state.save()
                 atomic_json(root / 'report.json', report(root))
@@ -109,6 +124,8 @@ class Factory:
     def reconcile(self):
         # A crash after rename but before state save must not repeat implementation/publication.
         for candidate in self.state.data['candidates']:
+            if candidate['status'] == 'needs_attention':
+                continue
             if candidate['status'] == 'rejected':
                 continue
             if not candidate.get('task_id'):
@@ -140,8 +157,8 @@ class Factory:
             phase = candidate['status']
             if phase == 'author':
                 proposal = self.journal.call('author', self.author_request(current_inventory, candidate),
-                                            contracts.PROPOSAL, key + '-author')
-                validate_scope(proposal)
+                                            self.proposal_schema(candidate), key + '-author')
+                self.validate_scope(proposal)
                 self.validate_proposal(proposal)
                 novelty(proposal, current_inventory, config.limits['similarity_threshold'])
                 candidate.update(proposal=proposal, task_id=proposal['task_id'], status='review',
@@ -154,29 +171,23 @@ class Factory:
                                                   'repair_verification': 'not_reviewed'}
             elif phase == 'review':
                 review = self.journal.call(
-                    'reviewer', review_prompt(contracts.REVIEW, candidate['proposal'], current_inventory,
-                                              candidate.get('environment_spec'),
-                                              feedback=candidate.get('feedback'),
-                                              repair_history=candidate.get('repair_history', [])),
+                    'reviewer', self.review_request(candidate, current_inventory),
                     contracts.REVIEW, key + '-review')
                 candidate['review'] = review
-                if passed(review):
+                if self.review_passed(review):
                     candidate.update(status='implement', review_status='proposal_approved')
                 else:
                     candidate['review_status'] = 'proposal_findings'
-                    if candidate['revision'] < config.limits['max_revisions']:
+                    if candidate['revision'] < self.repair_limit:
                         self.fail(candidate, {'independent_review': review})
                     else:
                         candidate.update(status='implement', revision_limit_reached=True,
                                          review_status='concerns_after_final_revision',
+                                         feedback={'independent_review': review},
                                          final_findings={'proposal_review': review})
             elif phase == 'implement':
-                implementation = self.journal.call('implementer', prompt(IMPLEMENT_ACTION, contracts.IMPLEMENTATION,
-                    approved_proposal=candidate['proposal'],
-                    reviewer_feedback=candidate.get('feedback'),
-                    repair_history=candidate.get('repair_history', []),
-                    verified_environment=candidate.get('environment_spec')),
-                    contracts.IMPLEMENTATION, key + '-implement')
+                implementation = self.journal.call('implementer', self.implementation_request(candidate),
+                    self.implementation_schema(), key + '-implement')
                 candidate.update(implementation=implementation, status='audit', authoring_status='implemented')
                 if config.generation is not None:
                     candidate['status'] = 'validate'
@@ -228,6 +239,8 @@ class Factory:
                                 revision=candidate['revision'],
                                 review_status=candidate.get('review_status'),
                                 final_findings=candidate.get('final_findings'))
+                if candidate.get('task_request'):
+                    evidence.update(task_request=candidate['task_request'], profile='manifest-v1')
                 evidence.update(request_key=key, config_fingerprint=config.fingerprint,
                                 model_identities={k: v.model for k, v in config.roles.items()},
                                 independence='Fresh reviewer prompts; no statistical independence claim')
@@ -272,6 +285,29 @@ class Factory:
         return author_prompt(contracts.PROPOSAL, current_inventory,
                              candidate.get('feedback'), previous or None)
 
+    def proposal_schema(self, candidate):
+        return contracts.PROPOSAL
+
+    def implementation_schema(self):
+        return contracts.IMPLEMENTATION
+
+    def validate_scope(self, proposal):
+        validate_scope(proposal)
+
+    def review_passed(self, review):
+        return passed(review)
+
+    def review_request(self, candidate, current_inventory):
+        return review_prompt(contracts.REVIEW, candidate['proposal'], current_inventory,
+                             candidate.get('environment_spec'), feedback=candidate.get('feedback'),
+                             repair_history=candidate.get('repair_history', []))
+
+    def implementation_request(self, candidate):
+        return prompt(IMPLEMENT_ACTION, contracts.IMPLEMENTATION,
+                      approved_proposal=candidate['proposal'], reviewer_feedback=candidate.get('feedback'),
+                      repair_history=candidate.get('repair_history', []),
+                      verified_environment=candidate.get('environment_spec'))
+
     def validate_proposal(self, proposal):
         pass
 
@@ -296,7 +332,7 @@ class Factory:
             self.state.data['halted'] = {'request': key, 'reason': reason}
             self.state.save()
             return
-        limit = min(1, self.config.limits['max_revisions']) if self.config.generation is not None else self.config.limits['max_revisions']
+        limit = self.repair_limit
         if self.config.generation is not None and phase == 'validate':
             limit = candidate['revision']
         revise_or_reject(candidate, feedback, limit)

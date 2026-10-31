@@ -87,9 +87,9 @@ class Adapter(ABC):
                          timeout=min(self.role.timeout, timeout or self.role.timeout),
                          max_bytes=self.role.max_output_bytes, env=env)
         except ProcessFailure as exc:
-            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             atomic_json(workspace / 'transport.json', {'stdout': exc.stdout, 'stderr': exc.stderr,
                                                       'incomplete': True, 'error': str(exc)})
+            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             raise
         atomic_json(workspace / 'transport.json', {'stdout': result.stdout, 'stderr': result.stderr,
                                                   'returncode': result.returncode})

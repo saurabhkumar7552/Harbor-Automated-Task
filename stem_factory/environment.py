@@ -19,7 +19,7 @@ def _read(path):
     return text
 
 
-def inspect_environment(existing_tasks, configured_image=None):
+def inspect_environment(existing_tasks, configured_image=None, *, manifest=False):
     """Summarize verified local task metadata without running Docker or Harbor."""
     tasks = Path(existing_tasks)
     root = tasks.parent
@@ -93,7 +93,8 @@ def inspect_environment(existing_tasks, configured_image=None):
         if configured_image and base_image != configured_image:
             assumptions.append(f'The factory profile selects {configured_image}; the example uses {base_image}. Compatibility requires separate runtime validation.')
     assumptions.extend([
-        'The factory profile continues to require one Python 3.13 standard-library submission at /work/task.py.',
+        ('Submission paths and language in this evidence describe the example only; the manifest defines actual task requirements.'
+         if manifest else 'The factory profile continues to require one Python 3.13 standard-library submission at /work/task.py.'),
         'The inspected calculate-average task is a packaging example, not a source of task-specific solution requirements.',
     ])
     runtime = {'base_image': base_image, 'configured_image': configured_image,

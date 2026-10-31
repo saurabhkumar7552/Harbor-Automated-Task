@@ -1,67 +1,52 @@
-# Terminal prompt: generate two medium STEM tasks
+# Terminal prompt: generate configured STEM tasks
 
-Paste the following into your terminal coding agent from this repository's root.
-This is an operator instruction for the terminal agent, not a replacement for the
-factory's internal structured-response prompts.
+Paste this into your terminal coding agent from the repository root. Set the count,
+difficulty and optional tool selections in `generation.request`; the shipped
+template defaults to two medium tasks with author-selected tools.
 
 ```text
-Generate exactly two medium-difficulty STEM task packages using this checkout's
-current generation workflow. Inspect repository instructions and the generation
-config before taking action.
+Generate STEM task packages using the current generation request and configured
+models/transport. Create a fresh run-specific config and output directory under task/.
+Use the manifest profile: include generation.request from the current template,
+retaining my requested count, difficulty, subjects and any explicit selections.
+Let the author choose language, tools, dependencies and submission format where
+these are auto. Keep canonical domain separate from specialization.
 
-Use this architecture:
-initial author proposal → one reviewer pass → one author feedback repair if needed
-→ author implementation and hidden tests → offline packaging.
+Use author draft → one reviewer feedback pass → author final proposal and
+implementation together → packaging. Do not add a separate proposal-repair call,
+second review, implementation audit or automatic rejection. Preserve reviewer
+findings and mark final changes as unreviewed. Use stable requirement IDs and the
+factory's canonical submission-artifact section. Preserve incomplete packages as
+needs_attention drafts with diagnostics; do not claim they passed validation.
 
-Configure max_revisions: 1: that means two proposal versions total, not two repairs.
-Call the reviewer only once per candidate. Do not add a second review or an
-implementation audit. Preserve all initial findings and label repairs as unreviewed.
-A passing initial proposal can proceed directly to implementation. Keep the static
-package checks enabled. Preserve packaging failure diagnostics without another loop.
+Reuse the configured accessible author/reviewer models and authentication. Run
+static preflight, resolve routine configuration issues, then execute generation
+using request.count (or an explicit --target override if I supplied one). Keep the
+candidate limit finite and consistent with my requested number of attempts; report
+shortfalls rather than starting an unbounded series of replacement candidates.
 
-Choose a stronger author model and a less expensive capable reviewer from the
-models actually available to the authenticated account. Keep their exact model IDs
-different. Use exactly the author role for implementer. Reuse verified access
-evidence where available; do not invent entitlement confirmations from model names
-or from a successful login alone. Report the chosen models before live execution.
-Use the current generation-supported Codex transport; do not switch to a different
-provider that the generation code cannot support.
+Keep existing runs intact and existing-task inventory separate from new output.
+Use the installed Python interpreter. Inference containers are permitted if selected
+by the existing transport. Do not execute generated commands, build task images,
+run Harbor, install tools, change authentication, commit or push. Stop on account,
+usage-limit or transport failures; do not repeatedly retry uncertain model requests.
+If I explicitly request resuming after account access is restored, use
+--retry-account-errors with the same run config. Do not silently enable it on failures.
 
-Create a fresh run-specific config and a unique output directory under task/.
-Use an existing readable task inventory, separate from the new output directory.
-Resolve config paths relative to the config file. Preserve prior runs and configs.
-Set live_enabled: true in this run's config: this prompt authorizes live generation
-for the two requested tasks. Use a finite candidate limit of 2 for this initial run;
-if either candidate fails, report the shortfall rather than starting extra candidates.
-
-Run static preflight with:
-<existing-python> -m stem_factory --config <new-config> generate --target 2 --dry-run
-
-Resolve routine configuration errors, then execute:
-<existing-python> -m stem_factory --config <new-config> generate --target 2
-
-Use a working installed Python 3.11+ interpreter. Replace the angle-bracket entries
-above with actual paths; they are placeholders. Pass --target 2 explicitly because
-the CLI default is five. Do not bypass provider or isolation checks.
-
-Preserve the configured inference transport. If it uses Docker, provider CLI
-containers are permitted for author/reviewer calls. Do not build task images or
-execute generated task code, Oracle/NOP checks, or Harbor benchmarks in this run.
-Do not install tools, change authentication, or overwrite previous run evidence.
-If authentication, entitlement, usage limits or missing transport prerequisites
-block execution, stop and report the exact stage and error. Do not repeatedly retry
-provider failures or automatically retry requests with uncertain completion.
-
-At completion, run the factory report command with the same config. Report:
-- requested and accepted task counts;
-- exact author/reviewer model IDs and total reserved model calls;
-- run directory and each accepted package's absolute path;
-- initial review findings and whether a repair was performed;
-- review status, offline package validation status and remaining concerns;
-- Harbor execution status, which should be not_run.
-
-Do not commit or push generated packages, logs, credentials, or local run configs.
+Report task counts, models, reserved calls, absolute package paths, chosen tools,
+submission artifacts, review/repair status, offline validation results, unresolved
+findings and runtime checks not performed.
 ```
 
-For another task count, change both `--target` arguments and the candidate limit.
-The candidate limit controls attempts; the target controls accepted packages.
+Commands after configuring a fresh run:
+
+```console
+python -m stem_factory --config config/my-run.models.yaml generate --dry-run
+python -m stem_factory --config config/my-run.models.yaml generate
+python -m stem_factory --config config/my-run.models.yaml report
+```
+
+`--target 5` requests five completed manifest candidates. Valid packages and
+needs_attention drafts both count toward completion; only validated packages count
+as accepted. Account/transport errors can still interrupt the run. No replacement
+loop starts for a preserved draft.

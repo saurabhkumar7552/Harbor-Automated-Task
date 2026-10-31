@@ -21,11 +21,13 @@ def parser():
     run.add_argument('--dry-run', action='store_true')
     run.add_argument('--recover-lock', action='store_true')
     run.add_argument('--retry-uncertain', action='store_true')
+    run.add_argument('--retry-account-errors', action='store_true', help='Explicitly retry cached authentication/quota failures after resolving access')
     generate = sub.add_parser('generate', help='Codex-only generation; no Harbor dependency or evaluations')
-    generate.add_argument('--target', type=int, default=5)
+    generate.add_argument('--target', type=int, default=None, help='Manifest candidate count (valid packages or preserved drafts); defaults to request.count or five')
     generate.add_argument('--dry-run', action='store_true')
     generate.add_argument('--recover-lock', action='store_true')
     generate.add_argument('--retry-uncertain', action='store_true')
+    generate.add_argument('--retry-account-errors', action='store_true', help='Explicitly retry cached authentication/quota failures after resolving access')
     validate = sub.add_parser('validate')
     validate.add_argument('--package', type=Path)
     validate.add_argument('--static-only', action='store_true')
@@ -49,9 +51,12 @@ def main(argv=None):
             output = DockerCodexAdapter(config, config.roles['author']).check_image()
         elif args.command == 'generate':
             from .generation import GenerationFactory, preflight
+            if args.target is None:
+                args.target = (config.generation or {}).get('request', {}).get('count', 5)
             output = preflight(config, args.target)
             if not args.dry_run:
-                output = GenerationFactory(config, retry_uncertain=args.retry_uncertain).run(args.target, args.recover_lock)
+                output = GenerationFactory(config, retry_uncertain=args.retry_uncertain,
+                    retry_account_errors=args.retry_account_errors).run(args.target, args.recover_lock)
                 code = 0 if output['accepted'] >= args.target else 2
         elif args.command == 'doctor':
             output = {'python': sys.version, 'config_valid': True, 'roles': {}, 'local_validation': Validator(config).doctor()}
@@ -81,12 +86,13 @@ def main(argv=None):
         elif args.command == 'report':
             output = report(config.output)
         elif args.command == 'run':
-            if not 1 <= args.target <= config.limits['max_candidates']:
+            if args.target < 1 or (config.limits['max_candidates'] is not None and args.target > config.limits['max_candidates']):
                 raise FactoryError('Target must be positive and no greater than max_candidates')
             if args.dry_run:
                 output = dry_plan(config, args.target)
             else:
-                output = Factory(config, retry_uncertain=args.retry_uncertain).run(args.target, args.recover_lock)
+                output = Factory(config, retry_uncertain=args.retry_uncertain,
+                    retry_account_errors=args.retry_account_errors).run(args.target, args.recover_lock)
                 code = 0 if output['accepted'] >= args.target else 2
         elif args.command == 'validate':
             packages = [args.package.resolve()] if args.package else sorted((config.output / 'accepted').glob('*'))

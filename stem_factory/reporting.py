@@ -65,6 +65,8 @@ def report(root):
         return {'accepted': 0, 'status': 'not-started'}
     state = json.loads(path.read_text(encoding='utf-8'))
     def package_path(candidate):
+        if candidate.get('draft_path'):
+            return candidate['draft_path']
         if candidate.get('status') == 'accepted' and candidate.get('task_id'):
             return str(root / 'accepted' / candidate['task_id'])
         if candidate.get('packaging_status') == 'package_failed':
@@ -79,9 +81,12 @@ def report(root):
     offline_valid = sum(c.get('package_validation_status') == 'offline_valid'
                         for c in state['candidates'])
     return {'accepted': sum(c['status'] == 'accepted' for c in state['candidates']),
+            'needs_attention': sum(c['status'] == 'needs_attention' for c in state['candidates']),
+            'completed_candidates': sum(c['status'] in ('accepted', 'needs_attention') for c in state['candidates']),
             'offline_valid_packages': offline_valid,
             'acceptance_basis': 'Offline package validation; reviewer approval is reported separately.',
             'halted': state.get('halted'),
+            'last_stop': state.get('last_stop'),
             'candidates': [{'task_id': c.get('task_id'), 'status': c['status'],
                             'authoring_status': c.get('authoring_status', 'legacy_unknown'),
                             'review_status': c.get('review_status', 'legacy_unknown'),
@@ -91,8 +96,17 @@ def report(root):
                             'package_validation_status': c.get('package_validation_status', 'legacy_unknown'),
                             'harbor_execution_status': c.get('harbor_execution_status', 'not_run'),
                             'environment_fingerprint': c.get('environment_fingerprint'),
+                            'task_request': c.get('task_request'),
+                            'difficulty': c.get('proposal', {}).get('difficulty', 'medium'),
+                            'language': c.get('proposal', {}).get('environment_plan', {}).get('language', 'python'),
+                            'environment_plan': c.get('proposal', {}).get('environment_plan'),
+                            'submission_artifacts': c.get('proposal', {}).get('output_manifest', []),
                             'review_findings': c.get('review', {}).get('findings', []),
                             'final_findings': c.get('final_findings', {}),
+                            'proposal_diagnostics': c.get('proposal_diagnostics', []),
+                            'final_diagnostics': c.get('final_diagnostics', []),
+                            'packaging_warnings': c.get('packaging_warnings', []),
+                            'diagnostic_phase': c.get('diagnostic_phase'),
                             'validation_report': c.get('validation_report'),
                             'package_path': package_path(c),
                             'reason': c.get('reason')}

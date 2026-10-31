@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from .contracts import loads
 from .errors import ConfigError, ContractError
+from .images import versioned_image
 
 
 def fields(data, allowed, required=()):
@@ -73,6 +74,8 @@ def load(path):
             pass
         def mapping(loader, node):
             pairs = loader.construct_pairs(node)
+            if any(not isinstance(k, str) for k, _ in pairs):
+                raise ConfigError('Configuration keys must be strings')
             if len({k for k, _ in pairs}) != len(pairs):
                 raise ConfigError("Duplicate YAML key")
             return dict(pairs)
@@ -161,7 +164,7 @@ def load(path):
     fields(data["validation"], validation)
     validation.update(data["validation"])
     image = validation["image"]
-    if not isinstance(image, str) or not re.fullmatch(r"[a-zA-Z0-9_./:@-]+", image) or ':' not in image or image.endswith(':latest'):
+    if not versioned_image(image):
         raise ConfigError("Validation image must have an explicit version or immutable digest")
     number(validation["timeout"], 1, 600)
     number(validation["max_output_bytes"], 4096, 16777216)
@@ -169,7 +172,12 @@ def load(path):
     canonical = json.dumps(data, sort_keys=True, separators=(',', ':'))
     generation = data.get('generation')
     if generation is not None:
-        fields(generation, {'subjects', 'entitlements', 'transport', 'docker'}, {'subjects', 'entitlements'})
+        fields(generation, {'subjects', 'entitlements', 'transport', 'docker', 'request', 'workflow'}, {'subjects', 'entitlements'})
+        from .task_spec import request_settings, workflow_settings
+        if 'request' in generation:
+            generation['request'] = request_settings(generation['request'])
+        if 'workflow' in generation:
+            generation['workflow'] = workflow_settings(generation['workflow'])
         transport = generation.get('transport', 'strict')
         if transport not in ('strict', 'docker'):
             raise ConfigError('Generation transport must be strict or docker')

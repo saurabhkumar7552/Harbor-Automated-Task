@@ -64,11 +64,11 @@ class CodexAdapter(Adapter):
         return [*args, *self.role.args, '-']
 
     def parse(self, text):
-        stop_if_account_blocked(text)
         answers, usage, completed = [], {}, 0
         for line in text.splitlines():
             event = response_value(line)
             if event.get('type') in {'error', 'turn.failed'}:
+                stop_if_account_blocked(json.dumps(event))
                 raise ContractError('Codex error event')
             if event.get('type') == 'item.completed':
                 item = event.get('item')

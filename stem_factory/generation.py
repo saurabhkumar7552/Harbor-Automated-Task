@@ -14,6 +14,7 @@ from .packaging import publish, static_check
 from .proposals import author_prompt, novelty
 from .reporting import atomic_json, event, tree_hash
 from .validation import Validator
+from . import task_spec
 
 
 def require_entitlements(config):
@@ -51,7 +52,10 @@ def preflight(config, target):
     for name, assessment in isolation.items():
         blockers.extend(f'{name}: {reason}' for reason in assessment['blockers'])
     return {
-        'dry_run': True, 'config_valid': True, 'target': target, 'difficulty': 'medium',
+        'dry_run': True, 'config_valid': True, 'target': target,
+        'difficulty': config.generation.get('request', {}).get('difficulty', 'medium'),
+        'profile': 'manifest-v1' if 'request' in config.generation else 'python-stdlib-legacy',
+        'task_request': config.generation.get('request'),
         'python': sys.version.split()[0], 'python_compatible': sys.version_info >= (3, 11),
         'codex_executable_present': None if docker else executable.is_file(),
         'transport': 'docker' if docker else 'strict',
@@ -66,18 +70,20 @@ def preflight(config, target):
         'authentication_status': 'Unverified; no authentication probe performed',
         'ready_for_live_generation': False,
         'runtime_validation': 'Docker build, container execution and Harbor execution are not performed by offline package validation',
-        'environment_spec': inspect_environment(config.existing_tasks, config.validation['image']),
+        'environment_spec': inspect_environment(config.existing_tasks, config.validation['image'], manifest='request' in config.generation),
         'harbor_required': False, 'docker_required_for_preflight': False,
         'benchmark_execution': 'never', 'inference_calls': 0, 'accepted_packages_created': 0,
         'blockers': blockers,
         'operations': [
-            'Create explicit STEM objective, medium difficulty, inputs, expected outputs, constraints and acceptance criteria',
-            'Author proposal; one review; at most one author repair (two versions total)',
-            'Same author model implements private reference/tests with feedback; package without another review',
+            'Create explicit STEM objective, requested difficulty, inputs, expected outputs, constraints and acceptance criteria',
+            ('Author draft; reviewer feedback; author returns final proposal and implementation together'
+             if 'request' in config.generation else 'Author proposal; one review; at most one author repair'),
+            'Package immediately after final author response; no second review or implementation audit',
             'Check schema, syntax, templates and duplicate similarity against existing and accepted tasks',
             'Validate package structure, metadata, environment contract and leakage offline',
-            'Publish offline-valid packages atomically; preserve final reviewer concerns and runtime uncertainty'],
-        'limits': {**config.limits, 'max_revisions': min(1, config.limits['max_revisions'])},
+            'Publish offline-valid packages; retain incomplete candidates as needs_attention drafts without rejection'],
+        'limits': {**config.limits, 'max_revisions': (1 if 'request' in config.generation else
+                    min(1, config.limits['max_revisions'], config.generation.get('workflow', {}).get('author_repairs', 1)))},
     }
 
 
@@ -103,8 +109,10 @@ class GenerationValidator(Validator):
             check = static_check(package, self.settings['image'])
             result['checks'].append({'name': 'package_structure_metadata_templates_leakage',
                                      'status': 'PASS', 'evidence': check})
-            result['warnings'] = [
+            result['warnings'] = check.get('warnings', []) + [
                 'Offline validation does not establish Docker build or runtime compatibility.',
+                'Declared tool versions and image tags are not verified or resolved; reproducibility is not proven.',
+                'Manifest source compilation, verifier behavior and semantic leakage are not verified offline.',
                 'Harbor execution has not been run.']
             result.update(passed=True, status='offline_valid')
         except (FactoryError, OSError, ValueError) as exc:
@@ -116,6 +124,43 @@ class GenerationValidator(Validator):
 
 
 class GenerationFactory(Factory):
+    @property
+    def manifest_mode(self):
+        return 'request' in self.config.generation
+
+    def run_request(self, candidate):
+        subjects = self.config.generation['subjects']
+        # Each candidate owns a stable subject; a failed subject does not stall rotation.
+        domain = subjects[(candidate.get('index', 1) - 1) % len(subjects)]
+        return {**{k: v for k, v in self.config.generation['request'].items() if k != 'count'}, 'domain': domain}
+
+    def proposal_schema(self, candidate):
+        return task_spec.proposal_schema(self.run_request(candidate)) if self.manifest_mode else super().proposal_schema(candidate)
+
+    def implementation_schema(self):
+        return contracts.MANIFEST_IMPLEMENTATION if self.manifest_mode else super().implementation_schema()
+
+    def validate_scope(self, proposal):
+        if not self.manifest_mode:
+            super().validate_scope(proposal)
+
+    def review_passed(self, review):
+        return task_spec.review_passed(review, self.config.generation['request']['difficulty']) if self.manifest_mode else super().review_passed(review)
+
+    def review_request(self, candidate, current_inventory):
+        if not self.manifest_mode:
+            return super().review_request(candidate, current_inventory)
+        return task_spec.phase_prompt('review', contracts.REVIEW, candidate['task_request'],
+            specification={k: v for k, v in candidate['proposal'].items() if k != 'difficulty_rationale'},
+            existing_tasks=current_inventory, environment_example=candidate.get('environment_spec'))
+
+    def implementation_request(self, candidate):
+        if not self.manifest_mode:
+            return super().implementation_request(candidate)
+        return task_spec.phase_prompt('implement', contracts.MANIFEST_IMPLEMENTATION,
+            candidate['task_request'], manifest=candidate['proposal'],
+            feedback=candidate.get('feedback'), repair_history=candidate.get('repair_history', []))
+
     def __init__(self, config, **kwargs):
         if config.generation is None:
             raise ConfigError('generate requires a generation configuration')
@@ -132,7 +177,7 @@ class GenerationFactory(Factory):
             kwargs['adapters'] = {'author': author, 'implementer': author, 'reviewer': reviewer}
         elif any(isinstance(a, CodexAdapter) and not a.strict_isolation for a in kwargs['adapters'].values()):
             raise ConfigError('Generation cannot use a legacy Codex adapter; strict isolation is required')
-        self.environment_spec = inspect_environment(config.existing_tasks, config.validation['image'])
+        self.environment_spec = inspect_environment(config.existing_tasks, config.validation['image'], manifest='request' in config.generation)
         super().__init__(config, **kwargs)
 
     def preflight(self):
@@ -148,30 +193,44 @@ class GenerationFactory(Factory):
         return subjects[accepted % len(subjects)]
 
     def author_request(self, current_inventory, candidate):
+        if self.manifest_mode:
+            request = self.run_request(candidate)
+            return task_spec.phase_prompt('author', self.proposal_schema(candidate), request,
+                existing_tasks=current_inventory, environment_example=candidate.get('environment_spec', self.environment_spec),
+                previous=candidate.get('proposal'), feedback=candidate.get('feedback'),
+                repair_history=candidate.get('repair_history', []))
         return author_prompt(contracts.PROPOSAL, current_inventory,
             candidate.get('feedback'),
             {k: candidate[k] for k in ('proposal', 'implementation') if k in candidate},
             environment_spec=candidate.get('environment_spec', self.environment_spec),
             revision_history=candidate.get('repair_history', []), revision=candidate.get('revision', 0)) + (
             '\nRequired domain: ' + self.subject() +
+            '\nReturn domain as that exact string, without a description or specialization suffix. '
             '\nThe problem_statement must explicitly define inputs, expected outputs, '
             'types, units, tolerances, error behavior and bounds. Acceptance criteria '
             'must be objectively testable. No unstated assumptions. Difficulty: medium.\n')
 
     def validate_proposal(self, proposal):
+        if self.manifest_mode:
+            task_spec.validate_proposal(proposal, {**self.config.generation['request'], 'domain': proposal['domain']})
+            return
         if proposal['domain'].strip().casefold() != self.subject().strip().casefold():
-            raise ConfigError('Proposal domain differs from requested subject')
+            raise ConfigError(f"domain: expected exactly {self.subject()!r}; received {proposal['domain']!r}. Remove topic suffixes.")
 
     def step(self, candidate):
+        if self.manifest_mode:
+            from .feedback_pipeline import step
+            step(self, candidate)
+            return
         candidate.setdefault('authoring_status', 'awaiting_author')
         candidate.setdefault('review_status', 'not_reviewed')
         candidate.setdefault('packaging_status', 'not_started')
         candidate.setdefault('package_validation_status', 'not_run')
         candidate.setdefault('harbor_execution_status', 'not_run')
         candidate.setdefault('repair_history', [])
-        if candidate['revision'] >= min(1, self.config.limits['max_revisions']):
+        if candidate['revision'] >= self.repair_limit:
             candidate['revision_limit_reached'] = True
-        current = inspect_environment(self.config.existing_tasks, self.config.validation['image'])
+        current = inspect_environment(self.config.existing_tasks, self.config.validation['image'], manifest=self.manifest_mode)
         previous = candidate.get('environment_spec')
         if previous and previous.get('fingerprint') != current['fingerprint']:
             change = {'old_fingerprint': previous.get('fingerprint'),
@@ -184,7 +243,7 @@ class GenerationFactory(Factory):
                 archived = self.config.output / 'failed' / (Path(previous_stage).name + '-environment-changed')
                 publish(previous_stage, archived)
             if candidate.get('proposal') and candidate['status'] != 'author' and \
-                    candidate['revision'] < min(1, self.config.limits['max_revisions']):
+                    candidate['revision'] < self.repair_limit:
                 candidate.setdefault('repair_history', []).append({
                     'failed_revision': candidate['revision'], 'phase': candidate['status'],
                     'findings': {'environment_change': change},
@@ -192,7 +251,7 @@ class GenerationFactory(Factory):
                     'implementation': candidate.get('implementation')})
                 from .revisions import revise_or_reject
                 revise_or_reject(candidate, {'environment_change': change},
-                                 min(1, self.config.limits['max_revisions']))
+                                 self.repair_limit)
                 candidate.update(authoring_status='repair_pending', review_status='awaiting_review',
                                  packaging_status='not_started', package_validation_status='not_run')
             else:

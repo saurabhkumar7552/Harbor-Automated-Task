@@ -65,7 +65,7 @@ OS ACL/enforcement audit, request-bound health, authentication isolation, comple
 tool denial and contained transport remain future work. No model access or sandbox
 safety is verified. Model placeholders, revision limits and offline Docker task
 validation remain unchanged. See the new
-[patch report](launcher-preflight-patch-20261029T113237Z/REPORT.md) for current tests
+historical local patch report (cleanup pending) for current tests
 and preservation evidence. The preparation results below are historical.
 
 Prepared 2026-10-29. No live inference, real task generation, Docker operations,
@@ -139,9 +139,9 @@ Missing/stale evidence and placeholder IDs fail closed before calls or output.
 
 ## Workflow and validation
 
-Default target: five accepted medium tasks. `generation.subjects` is a configurable
-ordered mix: Mathematics, Physics, Chemistry, Engineering, Statistics. Subjects
-rotate by accepted count so rejected candidates do not consume subject slots;
+Legacy default target: five accepted medium tasks; manifest configs use request.count when provided. `generation.subjects` is a configurable
+ordered mix: Mathematics, Physics, Chemistry, Engineering, Statistics. Legacy subjects
+rotate by accepted count; manifest subjects rotate by stable candidate index;
 repeat a subject to increase its share. A domain mismatch rejects the proposal.
 Within each subject, author proposals must define learning objective, explicit
 inputs/expected outputs, constraints, units/tolerances, errors and objective
@@ -161,7 +161,8 @@ accepted packages, plus semantic novelty review. The generation path also checks
 the final public instruction. These checks can miss semantic near duplicates.
 
 Generation package validation is offline-only: it checks structure, TOML metadata,
-exact templates, Python syntax, environment fingerprints and leakage. Docker builds,
+exact templates, environment fingerprints and leakage. Legacy Python packages also
+get Python syntax checks; manifest language compilation and verifier behavior are deferred. Docker builds,
 container execution and Harbor task execution are recorded as not run. Offline-valid
 packages may publish while review status remains unresolved; package validation and
 review status remain distinct. Failed offline validation remains invalid and its
@@ -224,3 +225,15 @@ tests/test_generation.py, this document and generation-preparation evidence.
 Pre-existing modifications to reporting.py, state.py, the pilot and unrelated
 documentation/tests were preserved. Pilot SHA-256 remains
 `3ee4b0e278a46b6a0c9cec2be418918f6455928bcba11eb434d2452cf60550aa`.
+
+## Manifest generation
+
+The current template includes generation.request and uses flexible task manifests.
+See [configuration, migration and manifest format](FLEXIBLE-GENERATION.md).
+Existing configs without request retain the legacy Python profile for compatibility.
+
+Manifest generation now uses author draft → reviewer feedback → author final proposal
+and implementation together → packaging (three calls). The earlier proposal-repair
+description above applies to legacy profiles. Manifest reviewer failures are feedback,
+not rejection gates; incomplete packages are preserved as needs_attention drafts.
+Use a fresh run directory after this prompt/schema change.

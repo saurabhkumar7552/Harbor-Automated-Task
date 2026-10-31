@@ -55,6 +55,25 @@ AUDIT = obj(
                         finding=string(), evidence=string(), required_change=string()), 0),
 )
 
+# Tool-neutral generation contracts. The legacy Python profile remains available.
+MANIFEST_PROPOSAL = obj(**PROPOSAL['properties'], specialization=string(),
+    difficulty={'type': 'string', 'enum': ['easy', 'medium', 'hard']},
+    environment_plan=obj(language=string(), submission_format=string(),
+        tools=array(obj(name=string(), version=string(), purpose=string()), 0),
+        base_image=string(), setup_steps=array(string(), 0),
+        verifier_image=string(), verifier_setup_steps=array(string(), 0),
+        resources=obj(cpus={'type': 'integer', 'minimum': 1, 'maximum': 32},
+            memory_mb={'type': 'integer', 'minimum': 128, 'maximum': 65536},
+            agent_timeout_sec={'type': 'integer', 'minimum': 1, 'maximum': 7200},
+            verifier_timeout_sec={'type': 'integer', 'minimum': 1, 'maximum': 7200})))
+MANIFEST_PROPOSAL['properties']['dependencies'] = array(obj(name=string(), version=string(), purpose=string()), 0)
+FILE = obj(path=string(), content={'type': 'string', 'minLength': 0, 'maxLength': 60000})
+MANIFEST_IMPLEMENTATION = obj(instruction=string(),
+    starter_files=array(FILE, 0), reference_files=array(FILE), verifier_files=array(FILE),
+    reference_command=array(string()), verifier_command=array(string()),
+    test_cases=array(obj(id=string(), purpose=string())),
+    requirements_traceability=array(obj(requirement=string(), tests=array(string()))))
+
 
 def validate(value, schema, path="$"):
     types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool}
@@ -62,7 +81,7 @@ def validate(value, schema, path="$"):
     if type(value) is not types[kind]:
         raise ContractError(f"{path}: expected {kind}")
     if "enum" in schema and value not in schema["enum"]:
-        raise ContractError(f"{path}: invalid enum")
+        raise ContractError(f"{path}: invalid enum; expected {schema['enum']!r}, received {value!r}")
     if kind == "object":
         if set(value) != set(schema["required"]):
             raise ContractError(f"{path}: missing or unexpected fields")

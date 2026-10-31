@@ -87,6 +87,22 @@
         "model": "REPLACE_WITH_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID",
         "source": "Replace with a non-secret account confirmation reference."
       }
+    },
+    "request": {
+      "count": 2,
+      "difficulty": "medium",
+      "language": "auto",
+      "tools": "auto",
+      "dependencies": "auto",
+      "submission_format": "auto",
+      "constraints": {
+        "network_during_evaluation": false,
+        "reproducible_environment": true
+      }
+    },
+    "workflow": {
+      "reviewer_passes": 1,
+      "author_repairs": 1
     }
   }
 }

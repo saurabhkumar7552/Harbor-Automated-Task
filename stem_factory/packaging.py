@@ -62,17 +62,19 @@ def metadata(proposal, environment_spec=None):
     verifier_cpus = verifier_environment.get('cpus', cpus)
     verifier_memory = verifier_environment.get('memory_mb', memory_mb)
     verifier_os = verifier_environment.get('os', os_name)
+    difficulty = proposal.get('difficulty', 'medium')
+    artifacts = [v['path'] for v in proposal['output_manifest']]
     return f'''schema_version = "1.3"
-artifacts = ["/work/task.py"]
+artifacts = {json.dumps(artifacts)}
 
 [task]
 name = {json.dumps('local/' + proposal['task_id'])}
 description = {json.dumps(proposal['title'])}
-keywords = ["stem", "python", "medium"]
+keywords = {json.dumps(['stem', proposal.get('environment_plan', {}).get('language', 'python'), difficulty])}
 
 [metadata]
 category = {json.dumps(proposal['domain'])}
-difficulty = "medium"
+difficulty = {json.dumps(difficulty)}
 
 [agent]
 timeout_sec = {float(agent_timeout)}
@@ -280,6 +282,9 @@ def check_implementation(bundle):
 
 
 def create_package(directory, proposal, implementation, image, evidence):
+    if evidence.get('profile') == 'manifest-v1':
+        from .manifest_package import create_package as create_manifest
+        return create_manifest(directory, proposal, implementation, evidence)
     check_implementation(implementation)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
@@ -300,6 +305,14 @@ def create_package(directory, proposal, implementation, image, evidence):
 
 def static_check(directory, image):
     directory = Path(directory)
+    evidence_path = directory / 'authoring/evidence.json'
+    if evidence_path.is_symlink():
+        raise FactoryError('Symlink in package evidence')
+    if evidence_path.is_file():
+        evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+        if evidence.get('profile') == 'manifest-v1':
+            from .manifest_package import static_check as check_manifest
+            return check_manifest(directory, evidence)
     required = {'instruction.md', 'task.toml', 'environment/Dockerfile', 'environment/.dockerignore',
                 'solution/solve.sh', 'tests/Dockerfile', 'tests/.dockerignore', 'tests/test.sh',
                 'tests/test_task.py', 'tests/driver.py', 'README.md', 'authoring/evidence.json'}
@@ -315,7 +328,7 @@ def static_check(directory, image):
             if not data or b'\r' in data or data.startswith(b'\xef\xbb\xbf'):
                 raise FactoryError('Package files must be nonempty UTF-8 LF')
             no_secrets(data.decode('utf-8'))
-    evidence = json.loads((directory / 'authoring/evidence.json').read_text())
+    evidence = json.loads((directory / 'authoring/evidence.json').read_text(encoding='utf-8'))
     proposal = evidence['proposal']
     check_implementation(evidence['implementation'])
     environment = evidence.get('environment_spec')
@@ -324,7 +337,7 @@ def static_check(directory, image):
         fingerprint = bound.pop('fingerprint', None)
         if fingerprint != evidence.get('environment_fingerprint') or fingerprint != digest(bound):
             raise FactoryError('Environment evidence fingerprint mismatch')
-    raw = tomllib.loads((directory / 'task.toml').read_text())
+    raw = tomllib.loads((directory / 'task.toml').read_text(encoding='utf-8'))
     if raw != tomllib.loads(metadata(proposal, environment)):
         raise FactoryError('Harbor metadata differs from approved template')
     if environment is not None:

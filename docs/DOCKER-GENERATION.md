@@ -51,17 +51,19 @@ The CLI contracts come from official OpenAI documentation for
 [Codex state locations](https://learn.chatgpt.com/docs/config-file/environment-variables).
 Container compatibility for the chosen image remains unverified until tested.
 
-## Current readiness
+## Historical local observations
 
-`live_enabled` remains false. Following the user's separate build/test approval,
+The shipped template has live execution disabled and no image/auth volume selected.
+The observations below describe a previous local setup, not the current template.
+Following the user's separate build/test approval,
 the Linux amd64 image was built and `generation.docker.image` is now pinned to
 `sha256:f64186ca7ee2bd2fc2df5e76b91ee9a8408581f5aeec99466522deede50e0169`.
 The credential-free health command exited 0 and reported `codex-cli 0.165.0` with
 the required CLI interface. Both network-disabled test containers were removed;
 an independent Docker inventory found no remaining `stem-model-` containers.
-See the [build log](generation-configuration/docker-image-build.log),
-[health result](generation-configuration/docker-image-health.json) and
-[preservation checks](generation-configuration/docker-image-checks.json).
+See the `generation-configuration/docker-image-build.log` (historical local evidence; cleanup pending),
+`generation-configuration/docker-image-health.json` (historical local evidence; cleanup pending) and
+`generation-configuration/docker-image-checks.json` (historical local evidence; cleanup pending).
 
 After separate sign-in authorization, the dedicated plain local volume
 `stem-factory-codex-auth` was created without reusing an existing work volume.
@@ -70,7 +72,7 @@ network-disabled `codex login status` check exited 0; raw authentication output
 was not saved and credential files were not opened/copied by the agent.
 `generation.docker.auth_volume` now names that volume. Sign-in/status containers
 were removed and volume metadata was checked without inspecting its contents.
-See the [non-secret sign-in receipt](generation-configuration/docker-sign-in-result.json).
+See the `generation-configuration/docker-sign-in-result.json` (historical local evidence; cleanup pending).
 Saved login presence does not establish model entitlement, token refresh success,
 adversarial isolation, schema-bind compatibility or task-runtime correctness.
 
@@ -132,12 +134,12 @@ transport, timeout/overflow/cancellation cleanup, shared cleanup failure lockout
 malformed responses, credential-free health and all five simulated acceptances
 through the actual Docker adapter. All Docker processes/provider responses are
 mocked; fixture code is never executed. See
-[full offline suite log](generation-configuration/docker-transport-tests.log).
+`generation-configuration/docker-transport-tests.log` (historical local evidence; cleanup pending).
 Final suite: **106 passed in 35.738 seconds**, zero failures/errors/skips.
 The static five-task dry-run exited 0; 33 Python source files parsed, the missing-image
 health path failed before any process, and `git diff --check` passed. See the
-[dry-run result](generation-configuration/docker-transport-dry-run.json) and
-[preservation checks](generation-configuration/docker-transport-checks.json).
+`generation-configuration/docker-transport-dry-run.json` (historical local evidence; cleanup pending) and
+`generation-configuration/docker-transport-checks.json` (historical local evidence; cleanup pending).
 Pilot, strict-isolation source and all 147 calculate-average files were preserved.
 
 Changed implementation files: `stem_factory/config.py`, `generation.py`, `cli.py`,

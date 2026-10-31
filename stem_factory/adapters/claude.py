@@ -1,6 +1,7 @@
 import json
 from .base import Adapter, Response, response_value
 from ..errors import ContractError
+from .provider_failures import stop_if_account_blocked
 
 
 class ClaudeAdapter(Adapter):
@@ -17,6 +18,7 @@ class ClaudeAdapter(Adapter):
     def parse(self, text):
         envelope = response_value(text)
         if envelope.get('is_error') or envelope.get('subtype', 'success') != 'success':
+            stop_if_account_blocked(json.dumps({**envelope, 'is_error': True}))
             raise ContractError('Claude unsuccessful result')
         value = envelope.get('structured_output')
         if value is None:

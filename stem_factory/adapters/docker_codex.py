@@ -217,8 +217,8 @@ class DockerCodexAdapter(Adapter):
             result = self._execute(args, workspace=workspace, prompt=prompt, network='bridge',
                                    timeout=deadline - time.monotonic())
         except ProcessFailure as exc:
-            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             atomic_json(workspace / 'transport.json', {'stdout': exc.stdout, 'stderr': exc.stderr})
+            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             raise
         atomic_json(workspace / 'transport.json', {'stdout': result.stdout, 'stderr': result.stderr,
                                                   'returncode': result.returncode})

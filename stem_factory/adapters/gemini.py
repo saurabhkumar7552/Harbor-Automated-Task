@@ -1,5 +1,6 @@
 from .base import Adapter, Response, response_value
 from ..errors import ContractError
+from .provider_failures import stop_if_account_blocked
 
 
 class GeminiAdapter(Adapter):
@@ -16,5 +17,7 @@ class GeminiAdapter(Adapter):
     def parse(self, text):
         envelope = response_value(text)
         if envelope.get('error') or not isinstance(envelope.get('response'), str):
+            if envelope.get('error'):
+                stop_if_account_blocked(text)
             raise ContractError('Gemini response/error envelope invalid')
         return Response(response_value(envelope['response']), text, '', envelope.get('stats', {}))

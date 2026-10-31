@@ -123,6 +123,8 @@ class Validator:
         tags = []
         try:
             report['static'] = static_check(package, self.settings['image'])
+            if report['static'].get('profile') == 'manifest-v1':
+                raise FactoryError('Manifest runtime execution needs a dedicated Harbor runner; this validator supports legacy Python packages only')
             report['harbor'] = self.schema(package)
             image_id = self.image_identity()
             report['image_id'] = image_id

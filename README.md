@@ -1,24 +1,31 @@
 # STEM Task Factory
 
-Generate medium-difficulty STEM programming tasks as Harbor task packages using
+Generate configurable STEM tasks as Harbor task packages using
 an author model and a different reviewer model.
 
 ## Current generation architecture
 
 ```text
-Author proposal → reviewer feedback → one author repair, if needed
-              → author implementation and tests → offline packaging
+Author draft → reviewer feedback → author final task + implementation → packaging
 ```
 
-Each candidate receives **one reviewer call**. The initial proposal and optional
-repair are two proposal versions total: `max_revisions: 1` counts the one repair.
-Older generation configs are capped at one repair. There is no second review or
-implementation audit. A passing initial proposal proceeds directly to implementation.
-The author model also serves as implementer, using the latest proposal and feedback.
+Manifest generation makes three model calls per candidate: initial author, one
+reviewer, then a final author response that contains the corrected proposal and
+implementation together. The final author always receives reviewer feedback,
+including a failed verdict. There is no second review, implementation audit,
+reviewer-based rejection or separate proposal-repair call.
 
-Initial reviewer findings remain in evidence. Repaired proposals are marked
-`repaired_without_rereview`; packaging does not claim the repair was independently
-verified. Package failures preserve diagnostics and do not start another repair loop.
+Initial findings remain in evidence. Final author output is marked
+`repaired_without_rereview`, not independently approved. Packaging writes a canonical
+submission-artifact section and uses requirement IDs `R001`, `R002`, etc. Traceability
+wording or missing coverage produces visible diagnostics rather than rejecting the
+task. No semantic coverage is claimed for unresolved labels.
+
+Offline-valid packages publish under `accepted/`. Incomplete or unsafe-to-render
+packages are preserved under `drafts/` with `needs_attention` status, their original
+model responses and diagnostics. They are not labeled rejected or offline-valid.
+They count toward the requested candidate count, so there is no replacement loop.
+Account, transport and unknown-completion errors still stop the run with evidence.
 
 ## Generate two tasks
 
@@ -45,11 +52,12 @@ python -m stem_factory --config config/my-run.models.yaml generate --target 2
 python -m stem_factory --config config/my-run.models.yaml report
 ```
 
-Use `--target 2` explicitly; the CLI default is five. The target is the total
-accepted count for that output directory. Repeating the same command resumes it;
+`--target` overrides `generation.request.count`; without either, the default is five.
+The shipped template requests two. For manifest generation, the target is the total number of completed candidates
+(valid packages plus drafts needing attention) in that output directory. Repeating the same command resumes it;
 it does not request two additional tasks. Changed configuration requires a new
 output directory. Set `max_candidates: 2` if you want only two candidate attempts;
-a higher candidate limit allows replacements for failed candidates.
+manifest candidates needing attention remain preserved rather than replaced.
 
 On Windows, replace `python` with your installed interpreter if the Windows Store
 alias is unavailable. The optional `scripts/stem-factory.ps1` wrapper uses
@@ -57,6 +65,56 @@ alias is unavailable. The optional `scripts/stem-factory.ps1` wrapper uses
 
 For a copyable instruction to give your terminal coding agent, use the
 [task generation prompt](docs/TASK-GENERATION-PROMPT.md).
+
+## Flexible task configuration
+
+Add this fragment inside the existing generation configuration (keep subjects,
+transport and entitlement settings). The shipped template already includes it:
+
+```yaml
+generation:
+  subjects: [Physics, Chemistry, Mathematics]
+  request:
+    count: 5
+    difficulty: medium
+    language: auto
+    tools: auto
+    dependencies: auto
+    submission_format: auto
+    constraints:
+      network_during_evaluation: false
+      reproducible_environment: true
+  workflow:
+    reviewer_passes: 1
+    author_repairs: 1
+```
+
+Difficulty accepts `easy`, `medium`, or `hard`. `auto` lets the author choose; an
+explicit language or submission format must match exactly. Tools and dependencies
+accept `auto` or arrays of exact selections. For tools, array entries are canonical
+tool names; the author declares versions and purpose separately. An empty array
+means none. Subjects are canonical labels, and the author puts narrower descriptions
+in a separate `specialization` field. Manifest subjects rotate by candidate index,
+so failed candidates do not stall rotation. Invalid labels produce expected/received
+feedback. Dependencies, setup, test IDs, requirements and artifacts are carried in
+`authoring/manifest.json` and validated against the same request used by all phases.
+
+Manifest generation always uses one reviewer pass and one final author response.
+The older author_repairs/max_revisions controls do not create additional manifest
+loops or skip finalization; keep both at one for clarity. Legacy Python generation
+retains its separate repair behavior.
+
+Both selected task images must be Linux images with `/bin/sh` and standard POSIX
+utilities for the factory wrappers. Setup steps are declared Docker RUN commands;
+they are stored during authoring and only execute at a later container build gate.
+Evaluation network settings are configurable and distinct from build-time downloads.
+Reproducible mode requests pinned tool/dependency versions and reports incomplete
+version declarations as diagnostics. Version-tagged images are accepted but not immutable;
+image resolution, actual dependency availability and reproducibility need runtime
+verification. The factory does not invent image digests or prove those properties.
+
+See [manifest format and migration](docs/FLEXIBLE-GENERATION.md) for the schemas,
+command locations and limitations.
 
 ## Inference transport and authentication
 
@@ -82,17 +140,26 @@ creation. It cannot establish live authentication, account limits, or runtime re
 
 The reviewer assesses difficulty, correctness, solvability, ambiguity, testability,
 novelty and the supplied environment context. The author receives actionable feedback.
-Only Python 3.13 standard-library tasks with a single `/work/task.py` submission
-are supported by this profile. Hidden tests require at least eight named unittest
-cases; the bundle also includes a private reference and conceptual mutants.
+The new template uses the `manifest-v1` profile: the author chooses language, tools,
+dependencies, submission artifacts and verifier according to `generation.request`.
+The reviewer checks the proposal and test plan; executable tests are produced later.
+The public agent context contains only declared starter files. The private reference
+and verifier have separate file groups and commands. There is no universal Python,
+`/work/task.py`, or eight-unittest requirement in this profile.
+
+Existing configs without `generation.request` retain the legacy Python 3.13
+standard-library profile and its single `/work/task.py` submission. Use a fresh
+output directory when migrating those configs to manifest generation.
 
 The factory inspects existing task metadata and Dockerfile evidence read only,
 fingerprints the environment context, and supplies it to authoring and packaging.
 An environment change after the repair limit prevents stale content from publication.
 
-Generation validation checks package structure, exact templates, Python syntax,
+Generation validation checks package structure, exact templates, declared traceability,
 TOML metadata, environment fingerprints, integrity, novelty heuristics and leakage.
-It does **not** execute generated Python, build task images, or run Harbor. An
+Legacy Python packages also get Python syntax checks. Manifest source syntax,
+compilation, setup commands and verifier behavior remain unchecked offline.
+It does **not** execute generated code, build task images, or run Harbor. An
 `offline_valid` result establishes structural validity, not functional correctness,
 verified difficulty, or Harbor compatibility. Reviewer status is reported separately.
 
@@ -107,7 +174,8 @@ task/<run-id>/
   requests/                prompts, schemas, responses and usage evidence
   agent-work/              CLI workspaces and transport diagnostics
   staging/                 unpublished packages
-  failed/                  failure evidence and any partial package trees
+  drafts/                  manifest candidates needing attention and diagnostics
+  failed/                  legacy failures and historical partial package trees
   validation/              offline validation reports
   state.json               durable progress and publication hashes
   report.json              review, package and execution statuses
@@ -121,7 +189,13 @@ replace an existing destination. Modified accepted packages stop recovery.
 Interrupted requests with uncertain provider completion require deliberate
 `--retry-uncertain` after inspecting evidence. Use `--recover-lock` only when the
 previous process is dead. Authentication and provider usage-limit failures stop
-the run. There is no factory-wide token, model-call, spend or elapsed-time cap;
+the run. After resolving login, model access or quota, retry a cached account
+failure explicitly with `generate --retry-account-errors` (or `run` for the legacy
+workflow), using the same config and target. The failed request/result/transcript
+are archived under `requests/<key>/attempts/`; the new attempt uses a fresh managed
+workspace. If access is still blocked the run stops after that attempt. This flag
+does not bypass Docker cleanup blocks, changed request identities or unknown
+completion; uncertain retries retain their separate flag. There is no factory-wide token, model-call, spend or elapsed-time cap;
 per-request timeouts, output bounds and candidate/repair limits remain.
 
 Generated output and local run configs are ignored by Git. They remain available
@@ -153,10 +227,16 @@ python -m unittest discover -s tests -t .
 git diff --check
 ```
 
-The latest offline review passed 129 tests. Tests use mocked provider/container
+The feedback-pipeline offline suite ran 165 tests with one skipped and no failures,
+plus a passing five-package/15-call regression, including
+configurable difficulty and non-Python task packages. Tests use mocked provider/container
 operations and local subprocess checks; they do not establish live model access or
 Harbor execution. See the [end-to-end review](docs/END-TO-END-REVIEW.md).
 
 Additional documentation: [generation details](docs/GENERATION-ONLY.md),
 [Docker transport](docs/DOCKER-GENERATION.md), [legacy pilot](docs/PILOT.md), and
 [historical validation](docs/VALIDATION.md).
+
+Manifest completion with drafts returns a nonzero CLI exit status so automation does
+not mistake incomplete packages for validated output. Inspect `completed_candidates`,
+`accepted`, `needs_attention`, `diagnostic_phase` and `packaging_warnings` in the report.
