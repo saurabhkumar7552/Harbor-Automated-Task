@@ -4,7 +4,6 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
-import time
 import uuid
 from .errors import FactoryError
 from .packaging import static_check
@@ -37,15 +36,6 @@ class Validator:
         self.config = config
         self.settings = config.validation
         self.docker = self.settings['docker_executable']
-        self.deadline = None
-
-    def timeout(self, maximum):
-        if self.deadline is None:
-            return maximum
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
-            raise FactoryError('Local validation time budget exhausted')
-        return min(maximum, remaining)
 
     def doctor(self):
         result = {'harbor': {'available': False}, 'docker': {'available': False}}
@@ -77,13 +67,13 @@ class Validator:
         if not python:
             raise FactoryError('Harbor schema validation unavailable; configure an existing Harbor Python environment')
         proc = run([python, '-B', '-c', SCHEMA_SCRIPT, str(package), self.settings['harbor_site_packages'] or '-'],
-                   timeout=self.timeout(20), max_bytes=262144)
+                   timeout=20, max_bytes=262144)
         if proc.returncode:
             raise FactoryError('Installed Harbor schema validation failed; no benchmark was started')
         return json.loads(proc.stdout)
 
     def image_identity(self):
-        proc = run([self.docker, 'image', 'inspect', self.settings['image'], '--format', '{{.Id}}'], timeout=self.timeout(20))
+        proc = run([self.docker, 'image', 'inspect', self.settings['image'], '--format', '{{.Id}}'], timeout=20)
         if proc.returncode or not re.fullmatch(r'sha256:[a-f0-9]{64}', proc.stdout.strip()):
             raise FactoryError('Validation image must already exist locally; factory never pulls or installs dependencies')
         return proc.stdout.strip()
@@ -92,10 +82,10 @@ class Validator:
         directory = package / context
         proc = run([self.docker, 'build', '--pull=false', '--network', 'none', '--tag', tag,
                     '--file', str(directory / 'Dockerfile'), str(directory)],
-                   timeout=self.timeout(self.settings['timeout']), max_bytes=self.settings['max_output_bytes'])
+                   timeout=self.settings['timeout'], max_bytes=self.settings['max_output_bytes'])
         if proc.returncode:
             raise FactoryError(f'{context} image build failed (no dependencies were installed by the factory)')
-        inspect = run([self.docker, 'image', 'inspect', tag, '--format', '{{.Id}}'], timeout=self.timeout(15))
+        inspect = run([self.docker, 'image', 'inspect', tag, '--format', '{{.Id}}'], timeout=15)
         if inspect.returncode or not re.fullmatch(r'sha256:[a-f0-9]{64}', inspect.stdout.strip()):
             raise FactoryError('Built image identity could not be established')
         return {'image_id': inspect.stdout.strip(), 'build_output': redact(proc.stdout + proc.stderr)}
@@ -119,7 +109,7 @@ class Validator:
                 '--workdir', '/work', '--entrypoint', '/bin/bash', image_id,
                 '/solution/solve.sh' if reference else '/tests/test.sh']
         try:
-            return run(argv, timeout=self.timeout(self.settings['timeout']), max_bytes=self.settings['max_output_bytes'])
+            return run(argv, timeout=self.settings['timeout'], max_bytes=self.settings['max_output_bytes'])
         finally:
             # Killing the client alone does not stop daemon-side containers.
             cleanup = run([self.docker, 'rm', '--force', name], timeout=15, max_bytes=65536)

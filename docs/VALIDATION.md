@@ -16,8 +16,7 @@ Machine-readable result: [test-summary.json](test-summary.json).
 - A fake-model/fake-container integration reaches five accepted fixture packages
   through the full orchestration path. These fixtures are NOT independently
   verified STEM tasks; the fake validator deliberately labels its reports.
-- Durable requests are cached; model-call budgets and prompt-size limits stop
-  extra requests. Interrupted uncertain requests require explicit retry.
+- Durable requests are cached; interrupted uncertain requests require explicit retry.
 - Resume handles crashes before publication and after publication, without new
   model calls. Modified accepted packages stop recovery. Single-writer locking,
   immutable destinations and staged-content hashes are exercised.

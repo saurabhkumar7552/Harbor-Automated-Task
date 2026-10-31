@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "repository": ".",
-  "existing_tasks": "./tasks",
-  "output": "./generation-output",
+  "repository": "..",
+  "existing_tasks": "../existing-tasks",
+  "output": "../task/generation-run",
   "adapters": {},
   "roles": {
     "author": {
@@ -47,12 +47,7 @@
   },
   "limits": {
     "max_candidates": 15,
-    "max_revisions": 2,
-    "max_calls": 100,
-    "max_prompt_bytes": 1048576,
-    "max_unknown_cost_calls": 100,
-    "max_run_seconds": 7200,
-    "max_cost_usd": null,
+    "max_revisions": 1,
     "similarity_threshold": 0.72
   },
   "validation": {

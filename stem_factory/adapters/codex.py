@@ -1,5 +1,6 @@
 import json
 from .base import Adapter, Response, response_value
+from .provider_failures import stop_if_account_blocked
 from ..errors import ConfigError, ContractError
 
 
@@ -63,6 +64,7 @@ class CodexAdapter(Adapter):
         return [*args, *self.role.args, '-']
 
     def parse(self, text):
+        stop_if_account_blocked(text)
         answers, usage, completed = [], {}, 0
         for line in text.splitlines():
             event = response_value(line)

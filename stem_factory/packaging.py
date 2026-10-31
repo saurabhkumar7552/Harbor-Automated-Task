@@ -11,7 +11,7 @@ import textwrap
 import tokenize
 import sys
 from .errors import ContractError, FactoryError
-from .reporting import atomic_json, no_secrets, tree_hash
+from .reporting import atomic_json, digest, no_secrets, tree_hash
 
 
 DRIVER = '''import importlib.util
@@ -43,7 +43,25 @@ exit "$status"
 '''
 
 
-def metadata(proposal):
+def metadata(proposal, environment_spec=None):
+    runtime = (environment_spec or {}).get('runtime', {})
+    agent = runtime.get('agent') or {}
+    verifier = runtime.get('verifier') or {}
+    verifier_environment = verifier.get('environment') or {}
+    environment = runtime.get('environment') or {}
+    agent_timeout = agent.get('timeout_sec', 600.0)
+    verifier_timeout = verifier.get('timeout_sec', 60.0)
+    agent_network = agent.get('network_mode', 'public')
+    verifier_network = verifier.get('network_mode', 'no-network')
+    verifier_environment_mode = verifier.get('environment_mode', 'separate')
+    agent_build_timeout = environment.get('build_timeout_sec', 600.0)
+    verifier_build_timeout = verifier_environment.get('build_timeout_sec', 600.0)
+    cpus = environment.get('cpus', 1)
+    memory_mb = environment.get('memory_mb', 512)
+    os_name = environment.get('os', 'linux')
+    verifier_cpus = verifier_environment.get('cpus', cpus)
+    verifier_memory = verifier_environment.get('memory_mb', memory_mb)
+    verifier_os = verifier_environment.get('os', os_name)
     return f'''schema_version = "1.3"
 artifacts = ["/work/task.py"]
 
@@ -57,38 +75,38 @@ category = {json.dumps(proposal['domain'])}
 difficulty = "medium"
 
 [agent]
-timeout_sec = 600.0
-network_mode = "public"
+timeout_sec = {float(agent_timeout)}
+network_mode = {json.dumps(agent_network)}
 
 [verifier]
-timeout_sec = 60.0
-network_mode = "no-network"
-environment_mode = "separate"
+timeout_sec = {float(verifier_timeout)}
+network_mode = {json.dumps(verifier_network)}
+environment_mode = {json.dumps(verifier_environment_mode)}
 
 [verifier.environment]
-network_mode = "no-network"
-build_timeout_sec = 600.0
-os = "linux"
-cpus = 1
-memory_mb = 512
+network_mode = {json.dumps(verifier_environment.get('network_mode', verifier_network))}
+build_timeout_sec = {float(verifier_build_timeout)}
+os = {json.dumps(verifier_os)}
+cpus = {verifier_cpus}
+memory_mb = {verifier_memory}
 
 [environment]
-network_mode = "public"
-build_timeout_sec = 600.0
-os = "linux"
-cpus = 1
-memory_mb = 512
+network_mode = {json.dumps(environment.get('network_mode', agent_network))}
+build_timeout_sec = {float(agent_build_timeout)}
+os = {json.dumps(os_name)}
+cpus = {cpus}
+memory_mb = {memory_mb}
 '''
 
 
-def templates(proposal, implementation, image):
+def templates(proposal, implementation, image, environment_spec=None):
     reference = implementation['reference_python'].rstrip() + '\n'
     if re.search(r'^STEM_FACTORY_REFERENCE_END$', reference, re.M):
         raise ContractError('Reserved heredoc delimiter in reference')
     solve = "#!/bin/bash\nset -euo pipefail\nmkdir -p /work\ncat > /work/task.py <<'STEM_FACTORY_REFERENCE_END'\n" + reference + 'STEM_FACTORY_REFERENCE_END\n'
     return {
         'instruction.md': implementation['instruction'].rstrip() + '\n',
-        'task.toml': metadata(proposal),
+        'task.toml': metadata(proposal, environment_spec),
         'environment/Dockerfile': f'FROM {image}\nENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\nWORKDIR /work\nRUN mkdir -p /work\n',
         'environment/.dockerignore': '**\n!Dockerfile\n',
         'solution/solve.sh': solve,
@@ -266,7 +284,8 @@ def create_package(directory, proposal, implementation, image, evidence):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
     try:
-        for relative, content in templates(proposal, implementation, image).items():
+        for relative, content in templates(proposal, implementation, image,
+                                           evidence.get('environment_spec')).items():
             no_secrets(content)
             path = directory / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -284,8 +303,9 @@ def static_check(directory, image):
     required = {'instruction.md', 'task.toml', 'environment/Dockerfile', 'environment/.dockerignore',
                 'solution/solve.sh', 'tests/Dockerfile', 'tests/.dockerignore', 'tests/test.sh',
                 'tests/test_task.py', 'tests/driver.py', 'README.md', 'authoring/evidence.json'}
+    optional = {'authoring/validation.json'}
     actual = {p.relative_to(directory).as_posix() for p in directory.rglob('*') if p.is_file()}
-    if not required <= actual or any(not p.startswith('authoring/') for p in actual - required):
+    if actual - (required | optional) or (required - actual):
         raise FactoryError('Unexpected or missing package files')
     for path in directory.rglob('*'):
         if path.is_symlink():
@@ -295,14 +315,29 @@ def static_check(directory, image):
             if not data or b'\r' in data or data.startswith(b'\xef\xbb\xbf'):
                 raise FactoryError('Package files must be nonempty UTF-8 LF')
             no_secrets(data.decode('utf-8'))
-    proposal = json.loads((directory / 'authoring/evidence.json').read_text())['proposal']
+    evidence = json.loads((directory / 'authoring/evidence.json').read_text())
+    proposal = evidence['proposal']
+    check_implementation(evidence['implementation'])
+    environment = evidence.get('environment_spec')
+    if environment is not None:
+        bound = dict(environment)
+        fingerprint = bound.pop('fingerprint', None)
+        if fingerprint != evidence.get('environment_fingerprint') or fingerprint != digest(bound):
+            raise FactoryError('Environment evidence fingerprint mismatch')
     raw = tomllib.loads((directory / 'task.toml').read_text())
-    if raw != tomllib.loads(metadata(proposal)):
+    if raw != tomllib.loads(metadata(proposal, environment)):
         raise FactoryError('Harbor metadata differs from approved template')
-    for relative, content in templates(proposal, json.loads((directory / 'authoring/evidence.json').read_text())['implementation'], image).items():
+    if environment is not None:
+        runtime = environment.get('runtime', {})
+        if runtime.get('base_image') and runtime.get('configured_image') and \
+                runtime['base_image'] != runtime['configured_image']:
+            raise FactoryError('Selected task image differs from inspected target environment image')
+    for relative, content in templates(proposal, evidence['implementation'], image, environment).items():
         if (directory / relative).read_text(encoding='utf-8') != content:
             raise FactoryError('Package differs from reviewed content')
-    return {'static': 'PASS', 'schema_version': raw['schema_version'], 'tree_hash': tree_hash(directory)}
+    return {'static': 'PASS', 'schema_version': raw['schema_version'],
+            'environment_fingerprint': evidence.get('environment_fingerprint'),
+            'tree_hash': tree_hash(directory)}
 
 
 def publish(stage, destination):

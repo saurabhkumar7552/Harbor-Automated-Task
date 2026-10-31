@@ -6,7 +6,7 @@ from ..errors import ContractError
 class ClaudeAdapter(Adapter):
     required_flags = ('--print', '--model', '--output-format', '--json-schema', '--safe-mode',
                       '--tools', '--strict-mcp-config', '--mcp-config', '--no-session-persistence')
-    allowed_args = {'--betas': 1, '--max-budget-usd': 1}
+    allowed_args = {'--betas': 1}
 
     def command(self, schema, workspace):
         return [self.role.executable, '--print', '--model', self.role.model,

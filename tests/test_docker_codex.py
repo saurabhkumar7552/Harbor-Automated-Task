@@ -360,7 +360,7 @@ class DockerTransport(unittest.TestCase):
                 result = GenerationFactory(c, validator=FakeValidator()).run(5)
             self.assertEqual(result['accepted'], 5)
             self.assertEqual(models.count(c.roles['author'].model), 10)
-            self.assertEqual(models.count(c.roles['reviewer'].model), 10)
+            self.assertEqual(models.count(c.roles['reviewer'].model), 5)
             self.assertEqual(len(requests), len(set(requests)))
             names = [argv[argv.index('--name') + 1] for argv in created]
             self.assertEqual(len(names), len(set(names)))

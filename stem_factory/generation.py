@@ -1,19 +1,18 @@
-"""Generation-only control plane. No Harbor imports, probes or evaluations.
-
-Static preflight is read-only. Executable task validation retains the existing
-offline Docker boundary and is never substituted with host execution.
-"""
+"""Generation-only control plane with read-only environment context and static packaging checks."""
 import sys
 from pathlib import Path
 
+from . import contracts
 from .adapters.codex import CodexAdapter
 from .adapters.docker_codex import DockerCodexAdapter, assessment as docker_assessment
 from .config import require_live_execution, require_models
 from .errors import ConfigError, FactoryError
 from .factory import Factory
 from .isolation import assess_isolation
-from .packaging import static_check
-from .proposals import novelty
+from .environment import inspect_environment
+from .packaging import publish, static_check
+from .proposals import author_prompt, novelty
+from .reporting import atomic_json, event, tree_hash
 from .validation import Validator
 
 
@@ -33,7 +32,8 @@ def preflight(config, target):
     """No subprocesses, provider calls, runtime startup, or output writes."""
     if config.generation is None:
         raise ConfigError('generate requires a generation configuration')
-    if not 1 <= target <= config.limits['max_candidates']:
+    candidate_limit = config.limits['max_candidates']
+    if target < 1 or (candidate_limit is not None and target > candidate_limit):
         raise ConfigError('Target must be positive and no greater than max_candidates')
     blockers = []
     try:
@@ -65,18 +65,19 @@ def preflight(config, target):
         'isolation': isolation,
         'authentication_status': 'Unverified; no authentication probe performed',
         'ready_for_live_generation': False,
-        'runtime_validation': 'Deferred: existing offline Docker containment and local image required before inference; no host fallback',
+        'runtime_validation': 'Docker build, container execution and Harbor execution are not performed by offline package validation',
+        'environment_spec': inspect_environment(config.existing_tasks, config.validation['image']),
         'harbor_required': False, 'docker_required_for_preflight': False,
         'benchmark_execution': 'never', 'inference_calls': 0, 'accepted_packages_created': 0,
         'blockers': blockers,
         'operations': [
             'Create explicit STEM objective, medium difficulty, inputs, expected outputs, constraints and acceptance criteria',
-            'Author proposal; fresh independent reviewer; bounded revision or rejection',
-            'Same author model implements private reference/tests; reviewer audits full package',
+            'Author proposal; one review; at most one author repair (two versions total)',
+            'Same author model implements private reference/tests with feedback; package without another review',
             'Check schema, syntax, templates and duplicate similarity against existing and accepted tasks',
-            'Run reference twice, empty baseline and conceptual mutants using existing offline containment',
-            'Publish only fully validated packages atomically into separate accepted directory'],
-        'limits': config.limits, 'cost_tracking': 'Deferred; call limits do not establish a spending cap',
+            'Validate package structure, metadata, environment contract and leakage offline',
+            'Publish offline-valid packages atomically; preserve final reviewer concerns and runtime uncertainty'],
+        'limits': {**config.limits, 'max_revisions': min(1, config.limits['max_revisions'])},
     }
 
 
@@ -88,6 +89,30 @@ class GenerationValidator(Validator):
         # Repository-owned strict templates/TOML only. Harbor compatibility is deferred.
         return {'local_template': static_check(package, self.settings['image']),
                 'harbor_compatibility': 'not checked; benchmark integration out of scope'}
+
+    def validate(self, package, report_path):
+        """Perform offline-only package checks; never build or start Docker images."""
+        package = Path(package).resolve()
+        result = {'passed': False, 'status': 'FAIL', 'package': str(package),
+                  'input_hash': tree_hash(package, exclude={'authoring/validation.json'}),
+                  'checks': [], 'checks_not_run': [
+                      'Docker image build', 'reference execution in a container',
+                      'verifier and mutant execution in containers', 'Harbor task execution'],
+                  'harbor_execution': 'not_run', 'docker_build_verified': False}
+        try:
+            check = static_check(package, self.settings['image'])
+            result['checks'].append({'name': 'package_structure_metadata_templates_leakage',
+                                     'status': 'PASS', 'evidence': check})
+            result['warnings'] = [
+                'Offline validation does not establish Docker build or runtime compatibility.',
+                'Harbor execution has not been run.']
+            result.update(passed=True, status='offline_valid')
+        except (FactoryError, OSError, ValueError) as exc:
+            result['checks'].append({'name': 'package_structure_metadata_templates_leakage',
+                                     'status': 'FAIL', 'detail': str(exc)})
+            result['error'] = str(exc)
+        atomic_json(report_path, result)
+        return result
 
 
 class GenerationFactory(Factory):
@@ -107,16 +132,15 @@ class GenerationFactory(Factory):
             kwargs['adapters'] = {'author': author, 'implementer': author, 'reviewer': reviewer}
         elif any(isinstance(a, CodexAdapter) and not a.strict_isolation for a in kwargs['adapters'].values()):
             raise ConfigError('Generation cannot use a legacy Codex adapter; strict isolation is required')
+        self.environment_spec = inspect_environment(config.existing_tasks, config.validation['image'])
         super().__init__(config, **kwargs)
 
     def preflight(self):
         require_live_execution(self.config)
         require_entitlements(self.config)
-        for adapter in self.adapters.values():
+        for adapter in {id(a): a for a in self.adapters.values()}.values():
             adapter.preflight()  # Explicitly selected transport; never a fallback.
-        # Runtime readiness, only on an explicitly enabled future live run. This
-        # inspects an already-local image; no Docker/Harbor doctor or startup.
-        self.validator.image_identity()
+        # Task images are checked at the later runtime gate, not during authoring.
 
     def subject(self):
         accepted = sum(c['status'] == 'accepted' for c in self.state.data['candidates'])
@@ -124,7 +148,11 @@ class GenerationFactory(Factory):
         return subjects[accepted % len(subjects)]
 
     def author_request(self, current_inventory, candidate):
-        return super().author_request(current_inventory, candidate) + (
+        return author_prompt(contracts.PROPOSAL, current_inventory,
+            candidate.get('feedback'),
+            {k: candidate[k] for k in ('proposal', 'implementation') if k in candidate},
+            environment_spec=candidate.get('environment_spec', self.environment_spec),
+            revision_history=candidate.get('repair_history', []), revision=candidate.get('revision', 0)) + (
             '\nRequired domain: ' + self.subject() +
             '\nThe problem_statement must explicitly define inputs, expected outputs, '
             'types, units, tolerances, error behavior and bounds. Acceptance criteria '
@@ -135,6 +163,51 @@ class GenerationFactory(Factory):
             raise ConfigError('Proposal domain differs from requested subject')
 
     def step(self, candidate):
+        candidate.setdefault('authoring_status', 'awaiting_author')
+        candidate.setdefault('review_status', 'not_reviewed')
+        candidate.setdefault('packaging_status', 'not_started')
+        candidate.setdefault('package_validation_status', 'not_run')
+        candidate.setdefault('harbor_execution_status', 'not_run')
+        candidate.setdefault('repair_history', [])
+        if candidate['revision'] >= min(1, self.config.limits['max_revisions']):
+            candidate['revision_limit_reached'] = True
+        current = inspect_environment(self.config.existing_tasks, self.config.validation['image'])
+        previous = candidate.get('environment_spec')
+        if previous and previous.get('fingerprint') != current['fingerprint']:
+            change = {'old_fingerprint': previous.get('fingerprint'),
+                      'new_fingerprint': current['fingerprint'],
+                      'changed_evidence': {'previous': previous.get('evidence'),
+                                           'current': current.get('evidence')}}
+            candidate.setdefault('environment_history', []).append(change)
+            previous_stage = candidate.get('stage')
+            if previous_stage and Path(previous_stage).is_dir():
+                archived = self.config.output / 'failed' / (Path(previous_stage).name + '-environment-changed')
+                publish(previous_stage, archived)
+            if candidate.get('proposal') and candidate['status'] != 'author' and \
+                    candidate['revision'] < min(1, self.config.limits['max_revisions']):
+                candidate.setdefault('repair_history', []).append({
+                    'failed_revision': candidate['revision'], 'phase': candidate['status'],
+                    'findings': {'environment_change': change},
+                    'proposal': candidate.get('proposal'),
+                    'implementation': candidate.get('implementation')})
+                from .revisions import revise_or_reject
+                revise_or_reject(candidate, {'environment_change': change},
+                                 min(1, self.config.limits['max_revisions']))
+                candidate.update(authoring_status='repair_pending', review_status='awaiting_review',
+                                 packaging_status='not_started', package_validation_status='not_run')
+            else:
+                candidate['final_findings'] = {'environment_change': change}
+                candidate['review_status'] = 'concerns_after_final_revision'
+                if candidate.get('proposal') and candidate['status'] != 'author':
+                    self.reject(candidate, {'environment_change': change},
+                                'Environment changed after repair limit; create a fresh candidate')
+                    candidate.update(packaging_status='package_failed',
+                                     package_validation_status='failed')
+                    self.state.save()
+                    return
+            event(self.config.output, 'environment_spec_changed', candidate=candidate['index'], **change)
+        candidate['environment_spec'] = current
+        candidate['environment_fingerprint'] = current['fingerprint']
         if candidate['status'] == 'validate':
             # Also compare the final public instruction, not only the proposal.
             from .proposals import inventory
@@ -148,3 +221,9 @@ class GenerationFactory(Factory):
                 self.state.save()
                 return
         super().step(candidate)
+
+    @staticmethod
+    def key(candidate):
+        base = f'candidate-{candidate["index"]:03d}-revision-{candidate["revision"]:02d}'
+        fingerprint = candidate.get('environment_fingerprint')
+        return base + (f'-env-{fingerprint[:12]}' if fingerprint else '')

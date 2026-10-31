@@ -139,22 +139,22 @@ def load(path):
     a, r = roles["author"], roles["reviewer"]
     if (a.adapter == r.adapter or os.path.normcase(a.executable) == os.path.normcase(r.executable)) and a.model.casefold() == r.model.casefold():
         raise ConfigError("Author and reviewer require separately configured model identities")
-    limits = {"max_candidates": 15, "max_revisions": 2, "max_calls": 100,
-              "max_run_seconds": 7200, "max_cost_usd": None,
-              "max_unknown_cost_calls": 100, "max_prompt_bytes": 1048576, "similarity_threshold": 0.72}
+    limits = {"max_candidates": 15, "max_revisions": 3,
+              "similarity_threshold": 0.72}
     fields(data["limits"], limits)
     limits.update(data["limits"])
-    for key in ("max_candidates", "max_revisions", "max_calls", "max_unknown_cost_calls"):
-        if type(limits[key]) is not int:
-            raise ConfigError(f"{key} must be integer")
-        number(limits[key], 0 if key == "max_revisions" else 1, 1000)
-    number(limits["max_run_seconds"], 1, 86400)
-    if type(limits['max_prompt_bytes']) is not int:
-        raise ConfigError('max_prompt_bytes must be an integer')
-    number(limits['max_prompt_bytes'], 4096, 16777216)
+    # Null explicitly means no candidate ceiling when the target is an accepted
+    # count rather than an attempt count.
+    if limits["max_candidates"] is not None:
+        if type(limits["max_candidates"]) is not int:
+            raise ConfigError("max_candidates must be integer or null")
+        number(limits["max_candidates"], 1, 1000)
+    if type(limits["max_revisions"]) is not int:
+        raise ConfigError("max_revisions must be integer")
+    number(limits["max_revisions"], 0, 1000)
+    if limits["max_revisions"] > 3:
+        raise ConfigError("max_revisions cannot exceed the three-repair workflow maximum")
     number(limits["similarity_threshold"], .1, .95)
-    if limits["max_cost_usd"] is not None:
-        number(limits["max_cost_usd"], .01, 10000)
     validation = {"docker_executable": "docker", "image": "python:3.13.0-slim-bookworm",
                   "timeout": 60, "max_output_bytes": 1048576,
                   "harbor_python": None, "harbor_site_packages": None}
@@ -219,7 +219,7 @@ def load(path):
 
 def require_live_execution(config):
     if not config.execution['live_enabled']:
-        raise ConfigError('Live execution is disabled in configuration; verify model access, isolation and an enforceable budget before enabling')
+        raise ConfigError('Live execution is disabled in configuration; verify model access and isolation before enabling')
 
 
 def require_models(config):

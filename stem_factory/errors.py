@@ -10,5 +10,5 @@ class ContractError(FactoryError):
     pass
 
 
-class BudgetError(FactoryError):
+class RunHaltError(FactoryError):
     pass

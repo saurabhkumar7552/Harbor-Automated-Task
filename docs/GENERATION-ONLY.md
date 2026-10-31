@@ -70,8 +70,10 @@ and preservation evidence. The preparation results below are historical.
 
 Prepared 2026-10-29. No live inference, real task generation, Docker operations,
 Harbor execution, installation, authentication changes or commits were performed.
-The existing pilot remains disabled and unchanged. Cost tracking implementation
-is deferred; existing call/time limits are retained, not represented as spend caps.
+The existing pilot configuration remains live-disabled. The factory no longer
+enforces model-call, total-run-time, prompt-size or spend limits. Per-process
+timeouts, output-size limits, candidate/revision limits and provider usage-limit
+handling remain in place.
 
 ## Implementation plan and inspection
 
@@ -121,10 +123,11 @@ two distinct models is available here; no verification inference was attempted.
 `config/generation.models.yaml` requires the same Codex executable for every role,
 the identical author configuration for implementation, and distinct author/reviewer
 IDs. Provider overrides, custom adapters and reused workspaces are rejected.
-Each invocation passes that role's explicit `--model` value. Fresh reviewer requests
-omit the author's difficulty rationale and prior feedback. A reviewer sees the full
-implementation during the separate audit. This is procedural independence, not a
-claim of statistical independence or guaranteed difficulty assessment.
+Each invocation passes that role's explicit `--model` value. The single reviewer
+request omits the author's difficulty rationale. Generation does not review the
+repaired proposal or audit the implementation. Initial findings are preserved and
+repairs are explicitly marked as unreviewed; model separation does not guarantee
+statistical independence or difficulty accuracy.
 
 Before a future live run, `generation.entitlements.author` and `.reviewer` must
 contain objects with `model` (the matching exact ID) and `source` (a non-secret
@@ -146,20 +149,23 @@ acceptance criteria. Existing contracts include requirements, solution strategy,
 deterministic tests, edge cases and output manifest. Review rejects ambiguity,
 inadequate tests and unsuitable difficulty.
 
-Each candidate passes proposal review, implementation by the same author model,
-and reviewer audit. Defects return to authoring and a fresh review, with at most
-two revisions in the shipped profile; candidate/call/time bounds also apply.
+Generation uses at most two proposal versions: initial authoring, one reviewer pass,
+then one author repair when feedback requires changes. The repaired proposal goes
+straight to implementation and packaging with no second review or implementation
+audit. Reviewer findings remain in evidence; repairs are marked as not reviewed.
+The internal max_revisions count means repairs after the initial version, so this
+flow allows at most one repair even when an older config specifies three.
+Offline package failures are reported without starting another authoring cycle.
 Novelty checks compare identifiers and lexical similarity with existing and
 accepted packages, plus semantic novelty review. The generation path also checks
 the final public instruction. These checks can miss semantic near duplicates.
 
-Only schema/template/syntax-valid packages whose reference passes twice in clean
-offline containers, whose empty baseline fails, and whose three or more conceptual
-mutants fail assertions may publish. Existing non-root, resource-bounded,
-network-disabled container flags, cleanup and separate build contexts are retained.
-Failed partial packages move from staging into failed diagnostics; they never
-publish. Validation failure halts the shipped profile. Crash recovery and accepted
-hash checks remain in place. Static-only validity cannot qualify for acceptance.
+Generation package validation is offline-only: it checks structure, TOML metadata,
+exact templates, Python syntax, environment fingerprints and leakage. Docker builds,
+container execution and Harbor task execution are recorded as not run. Offline-valid
+packages may publish while review status remains unresolved; package validation and
+review status remain distinct. Failed offline validation remains invalid and its
+artifacts are preserved. Crash recovery and accepted-hash checks remain in place.
 
 The generation validator never invokes installed Harbor schema code or CLI. Its
 schema result records that Harbor compatibility is unverified. Harbor package
@@ -210,7 +216,7 @@ and approve generated-code validation; obtain explicit user approval for live
 model usage and deliberately enable this separate configuration. Do not enable
 the existing pilot. Provisioning or system/auth changes require a separate concrete
 proposal. No sandbox safety or model access has been certified. Paid calls remain
-unauthorized, and cost tracking remains deferred.
+unauthorized in this historical preparation record.
 
 Files changed in this preparation: README.md; stem_factory/cli.py, config.py,
 factory.py; new stem_factory/generation.py, config/generation.models.yaml,

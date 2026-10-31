@@ -11,11 +11,10 @@ unverified placeholders. Author and reviewer placeholder strings differ; this
 does not establish account access or independent model identities. No alias was
 substituted based on a subscription, a default, or a bundled catalog.
 
-The pilot permits one candidate, retains two review revisions, permits at most
-twelve model requests (four per complete revision cycle), and bounds workflow
-time to 1800 seconds. Its uniquely named output is separate from existing tasks
-and the default output, and has not been created. Unknown-cost calls are also
-limited to twelve; this is a call limit, not a monetary limit.
+The pilot permits one candidate and up to three repair revisions. It has no
+factory-level model-call, total-run-time, prompt-size or spend caps. Its uniquely
+named output is separate from existing tasks and the default output, and has not
+been created.
 
 New optional top-level configuration:
 
@@ -30,7 +29,7 @@ revision. The pilot explicitly overrides both defaults.
 The live lock is checked before CLI preflight or output creation and independently
 at the request journal before reserving/invoking a call. Dry-run remains permitted.
 Changing model placeholders alone cannot unlock the pilot. This is an operator
-lock, not a technical INR budget implementation.
+lock.
 
 With stop-on-validation-failure enabled, failed validation reports or validation
 exceptions preserve diagnostic artifacts, reject the candidate, record a durable
@@ -176,20 +175,6 @@ environment. Any discovered Harbor Python must import the actual task schema and
 support the wrapper's help before selecting it in config. WSL/container paths need
 an explicit, tested Windows invocation/path bridge; they cannot be inserted as
 Windows Python executable paths. These integrations remain unresolved.
-
-## INR 100 hard limit
-
-Not enforceable by the current factory. max_cost_usd is a known-spend check between
-calls, not a reservation or invoice ceiling. A single call may overshoot it, and
-Codex reports no dollar cost through this adapter. Call count/time/output byte caps
-do not bound charged tokens or rupees. No estimate or exchange rate is invented.
-
-Before paid enablement, the actual provider/billing route must supply a verified
-enforced spending mechanism or the implementation must reserve conservative maximum
-cost per request with enforceable token bounds, retries, unknown completions,
-currency conversion and applicable fees accounted for. A dashboard budget alert
-must not be assumed to block spend. No such mechanism is established. Keep
-live_enabled=false; changing it to true is not a substitute for budget enforcement.
 
 ## Commands and approval boundary
 

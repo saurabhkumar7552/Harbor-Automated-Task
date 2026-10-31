@@ -24,9 +24,8 @@
       "required_env": [], "cwd": null, "launcher": []
     }
   },
-  "limits": {"max_candidates": 15, "max_revisions": 2, "max_calls": 100,
-             "max_unknown_cost_calls": 100, "max_run_seconds": 7200,
-             "max_cost_usd": null, "similarity_threshold": 0.72},
+  "limits": {"max_candidates": 15, "max_revisions": 3,
+             "similarity_threshold": 0.72},
   "validation": {"docker_executable": "docker", "image": "python:3.13.0-slim-bookworm",
                  "timeout": 60, "max_output_bytes": 1048576,
                  "harbor_python": null, "harbor_site_packages": null}

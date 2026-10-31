@@ -35,6 +35,9 @@ REVIEW = obj(
     stem_relevant={"type": "boolean"}, stem_assessment=string(),
     tests_adequate={"type": "boolean"}, test_assessment=string(),
     defects=array(string(), 0), required_changes=array(string(), 0),
+    findings=array(obj(category={"type": "string", "enum": ["correctness", "environment", "packaging", "tests", "security_leakage", "difficulty", "quality"]},
+                        severity={"type": "string", "enum": ["blocking", "non_blocking"]},
+                        finding=string(), evidence=string(), required_change=string()), 0),
 )
 IMPLEMENTATION = obj(
     instruction=string(), reference_python=string(), tests_python=string(),
@@ -47,6 +50,9 @@ AUDIT = obj(
     no_answer_leakage={"type": "boolean"}, tests_meaningful={"type": "boolean"},
     mutants_plausible={"type": "boolean"}, rationale=string(),
     defects=array(string(), 0), required_changes=array(string(), 0),
+    findings=array(obj(category={"type": "string", "enum": ["correctness", "environment", "packaging", "tests", "security_leakage", "difficulty", "quality"]},
+                        severity={"type": "string", "enum": ["blocking", "non_blocking"]},
+                        finding=string(), evidence=string(), required_change=string()), 0),
 )
 
 

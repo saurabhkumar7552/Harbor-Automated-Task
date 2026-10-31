@@ -24,9 +24,15 @@ class ProcessFailure(FactoryError):
 
 def kill_tree(process):
     if os.name == 'nt':
-        subprocess.run([os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'System32', 'taskkill.exe'),
-                        '/PID', str(process.pid), '/T', '/F'], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            subprocess.run([os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'System32', 'taskkill.exe'),
+                            '/PID', str(process.pid), '/T', '/F'], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        finally:
+            if process.poll() is None:
+                process.kill()
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)

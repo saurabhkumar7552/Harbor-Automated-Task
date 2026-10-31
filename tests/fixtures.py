@@ -18,19 +18,26 @@ def proposal(task_id='coupled-decay'):
 
 
 def review(ok=True):
+    findings = [] if ok else [{'category': 'environment', 'severity': 'blocking',
+                               'finding': 'Missing units', 'evidence': 'Input contract omits units',
+                               'required_change': 'Specify units'}]
     return {'verdict': 'PASS' if ok else 'FAIL', 'difficulty': 'medium',
             'reasoning_complexity': 'Multiple dependent derivations', 'dependent_steps': 3,
             'ambiguity_assessment': 'Complete', 'complete': True, 'solvable': True,
             'solvability_assessment': 'Bounded', 'stem_relevant': True, 'stem_assessment': 'Physics',
             'tests_adequate': True, 'test_assessment': 'Edges and invariants',
-            'defects': [] if ok else ['Missing units'], 'required_changes': [] if ok else ['Specify units']}
+            'defects': [] if ok else ['Missing units'], 'required_changes': [] if ok else ['Specify units'],
+            'findings': findings}
 
 
 def audit(ok=True):
+    findings = [] if ok else [{'category': 'correctness', 'severity': 'blocking',
+                               'finding': 'Mismatch', 'evidence': 'Spec differs',
+                               'required_change': 'Fix mismatch'}]
     return {'verdict': 'PASS' if ok else 'FAIL', 'specification_matches': True, 'no_ambiguity': True,
             'no_answer_leakage': True, 'tests_meaningful': True, 'mutants_plausible': True,
             'rationale': 'Implementation aligns', 'defects': [] if ok else ['Mismatch'],
-            'required_changes': [] if ok else ['Fix mismatch']}
+            'required_changes': [] if ok else ['Fix mismatch'], 'findings': findings}
 
 
 def implementation():

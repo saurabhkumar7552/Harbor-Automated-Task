@@ -44,11 +44,7 @@
   },
   "limits": {
     "max_candidates": 15,
-    "max_revisions": 2,
-    "max_calls": 100,
-    "max_unknown_cost_calls": 100,
-    "max_run_seconds": 7200,
-    "max_cost_usd": null,
+    "max_revisions": 3,
     "similarity_threshold": 0.72
   },
   "validation": {

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "repository": "F:/GITHUB/test",
+  "existing_tasks": "F:/GITHUB/test/tasks",
+  "output": "../factory-output-pilot-f55c55946af1",
+  "adapters": {},
+  "roles": {
+    "author": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_VERIFIED_AUTHOR_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "required_env": [],
+      "cwd": null,
+      "launcher": []
+    },
+    "reviewer": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_DIFFERENT_VERIFIED_REVIEWER_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 1048576,
+      "required_env": [],
+      "cwd": null,
+      "launcher": []
+    },
+    "implementer": {
+      "adapter": "codex",
+      "executable": "C:/Users/hp/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe",
+      "model": "REPLACE_WITH_VERIFIED_IMPLEMENTER_MODEL_ID",
+      "effort": null,
+      "args": [],
+      "timeout": 300,
+      "max_output_bytes": 2097152,
+      "required_env": [],
+      "cwd": null,
+      "launcher": []
+    }
+  },
+  "limits": {
+    "max_candidates": 1,
+    "max_revisions": 3,
+    "similarity_threshold": 0.72
+  },
+  "validation": {
+    "docker_executable": "docker",
+    "image": "python:3.13.0-slim-bookworm",
+    "timeout": 60,
+    "max_output_bytes": 1048576,
+    "harbor_python": null,
+    "harbor_site_packages": null
+  },
+  "execution": {
+    "live_enabled": false,
+    "stop_on_validation_failure": true
+  }
+}

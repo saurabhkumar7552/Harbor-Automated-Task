@@ -21,7 +21,7 @@ class PreAuditStructure(unittest.TestCase):
                 result = Factory(c, adapters=a, validator=FakeValidator()).run(1)
             self.assertEqual(result['accepted'], 0)
             self.assertEqual(len(a['reviewer'].calls), 1)  # proposal review only
-            feedback = State(c).data['candidates'][0]['feedback']
+            feedback = State(c).data['candidates'][0]['final_findings']
             self.assertEqual(feedback['structural_validation']['code'], 'IMPLEMENTATION_STRUCTURE')
 
     def test_valid_bundle_keeps_independent_audit(self):

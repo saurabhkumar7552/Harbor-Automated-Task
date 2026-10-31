@@ -7,3 +7,12 @@ factory-output/
 .env*
 *.key
 *.pem
+
+# Generated packages, provider transcripts and local run configuration.
+/task/
+/generation-output/
+/config/generation-output/
+/config/task/
+/config/*.models.yaml
+!/config/generation.models.yaml
+!/config/pilot.models.yaml

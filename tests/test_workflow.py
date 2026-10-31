@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 from stem_factory import contracts
 from stem_factory.adapters.base import Response
-from stem_factory.errors import BudgetError, FactoryError
+from stem_factory.errors import RunHaltError, FactoryError
 from stem_factory.factory import Factory, dry_plan
 from stem_factory.packaging import create_package, publish, static_check
 from stem_factory.reporting import atomic_json, digest, tree_hash
@@ -65,7 +65,6 @@ class Workflow(unittest.TestCase):
             result = Factory(c, adapters=a, validator=v).run(1)
             self.assertEqual(result['accepted'], 1)
             self.assertEqual(result['calls_reserved'], 4)
-            self.assertTrue(result['cost_complete'])
             result = Factory(c, adapters=a, validator=v).run(1)
             self.assertEqual(result['calls_reserved'], 4)
             self.assertEqual(v.calls, 1)
@@ -86,17 +85,19 @@ class Workflow(unittest.TestCase):
             self.assertEqual(result['accepted'], 1)
             self.assertEqual(len(a['author'].calls), 2)
             self.assertIn('Specify units', a['author'].calls[1])
-            self.assertNotIn('Specify units', a['reviewer'].calls[1])
+            self.assertIn('Specify units', a['reviewer'].calls[1])
             prior = c.output / 'requests/candidate-001-revision-00-review/result.json'
             self.assertEqual(json.loads(prior.read_text())['value']['verdict'], 'FAIL')
 
-    def test_exhausted_review_never_implements(self):
+    def test_exhausted_review_retains_concerns_and_packages(self):
         with tempfile.TemporaryDirectory() as directory:
             c, a = config(directory, max_candidates=1), agents(always_fail=True)
             result = Factory(c, adapters=a, validator=FakeValidator()).run(1)
-            self.assertEqual(result['accepted'], 0)
-            self.assertEqual(a['implementer'].calls, [])
-            self.assertEqual(result['candidates'][0]['status'], 'rejected')
+            self.assertEqual(result['accepted'], 1)
+            self.assertEqual(len(a['implementer'].calls), 1)
+            self.assertEqual(result['candidates'][0]['status'], 'accepted')
+            self.assertEqual(result['candidates'][0]['review_status'], 'concerns_after_final_revision')
+            self.assertTrue(result['candidates'][0]['final_findings'])
 
     def test_failed_validation_preserves_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,15 +107,12 @@ class Workflow(unittest.TestCase):
             self.assertTrue((c.output / 'failed/candidate-001-revision-00/solution/solve.sh').is_file())
             self.assertEqual(list((c.output / 'accepted').iterdir()), [])
 
-    def test_budget_resume_does_not_repeat_author_call(self):
+    def test_no_configured_model_call_cap(self):
         with tempfile.TemporaryDirectory() as directory:
-            c, a = config(directory, max_calls=1), agents()
-            with self.assertRaises(BudgetError):
-                Factory(c, adapters=a, validator=FakeValidator()).run(1)
-            with self.assertRaises(BudgetError):
-                Factory(c, adapters=a, validator=FakeValidator()).run(1)
-            self.assertEqual(len(a['author'].calls), 1)
-            self.assertEqual(len(a['reviewer'].calls), 0)
+            c, a = config(directory), agents()
+            result = Factory(c, adapters=a, validator=FakeValidator()).run(1)
+            self.assertEqual(result['accepted'], 1)
+            self.assertEqual(result['calls_reserved'], 4)
 
     def test_interrupt_before_cache_requires_explicit_retry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -124,7 +122,7 @@ class Workflow(unittest.TestCase):
             state.save()
             atomic_json(c.output / 'requests/pending/request.json', {'inflight': True})
             a = agents()
-            with self.assertRaises(BudgetError):
+            with self.assertRaises(RunHaltError):
                 Journal(state, a).call('author', 'spec', contracts.PROPOSAL, 'pending')
             self.assertEqual(len(a['author'].calls), 0)
 
@@ -207,12 +205,11 @@ class Workflow(unittest.TestCase):
             transcript = c.output / 'requests/candidate-001-revision-00-review/transcript.json'
             self.assertIn('PASS', transcript.read_text())
 
-    def test_prompt_budget_fails_before_request_reservation(self):
+    def test_large_prompt_is_not_blocked_by_a_configured_cap(self):
         with tempfile.TemporaryDirectory() as directory:
-            c = config(directory, max_prompt_bytes=4096)
+            c = config(directory)
             c.output.mkdir()
             state, a = State(c), agents()
-            with self.assertRaises(FactoryError):
-                Journal(state, a).call('author', 'x'*5000, contracts.PROPOSAL, 'oversized')
-            self.assertEqual(state.data['calls'], 0)
-            self.assertEqual(a['author'].calls, [])
+            Journal(state, a).call('author', 'x'*5000, contracts.PROPOSAL, 'large-prompt')
+            self.assertEqual(state.data['calls'], 1)
+            self.assertEqual(len(a['author'].calls), 1)

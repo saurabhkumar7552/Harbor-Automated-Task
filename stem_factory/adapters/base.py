@@ -7,6 +7,7 @@ from ..contracts import loads
 from ..errors import ConfigError, FactoryError
 from ..process import run, ProcessFailure
 from ..reporting import atomic_json
+from .provider_failures import stop_if_account_blocked
 
 
 @dataclass
@@ -86,12 +87,14 @@ class Adapter(ABC):
                          timeout=min(self.role.timeout, timeout or self.role.timeout),
                          max_bytes=self.role.max_output_bytes, env=env)
         except ProcessFailure as exc:
+            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             atomic_json(workspace / 'transport.json', {'stdout': exc.stdout, 'stderr': exc.stderr,
                                                       'incomplete': True, 'error': str(exc)})
             raise
         atomic_json(workspace / 'transport.json', {'stdout': result.stdout, 'stderr': result.stderr,
                                                   'returncode': result.returncode})
         if result.returncode:
+            stop_if_account_blocked(result.stdout + '\n' + result.stderr)
             raise FactoryError(f'{self.role.adapter}: CLI exited unsuccessfully (output omitted)')
         response = self.parse(result.stdout)
         response.transcript, response.stderr = result.stdout, result.stderr

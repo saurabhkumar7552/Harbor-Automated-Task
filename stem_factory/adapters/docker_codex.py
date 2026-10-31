@@ -14,9 +14,10 @@ import uuid
 from .base import Adapter
 from .codex import CodexAdapter
 from ..config import require_live_execution
-from ..errors import ConfigError, FactoryError
+from ..errors import ConfigError, FactoryError, RunHaltError
 from ..process import run, ProcessFailure
 from ..reporting import atomic_json, no_secrets
+from .provider_failures import stop_if_account_blocked
 
 
 def assessment(config):
@@ -64,7 +65,7 @@ class DockerCodexAdapter(Adapter):
             from ..generation import require_entitlements
             require_entitlements(self.config)
         if self.health['cleanup_failed'] or (self.config.output / 'docker-cleanup-blocked.json').exists():
-            raise FactoryError('Docker cleanup is uncertain; further requests are blocked until operator investigation')
+            raise RunHaltError('Docker cleanup is uncertain; further requests are blocked until operator investigation')
         blockers = []
         if self.settings['image'] is None:
             blockers.append('Configure an existing immutable Linux Codex image ID; no image is built or pulled automatically')
@@ -80,7 +81,7 @@ class DockerCodexAdapter(Adapter):
         def query(args):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise FactoryError('Docker metadata time budget exhausted')
+                raise FactoryError('Docker metadata command timed out')
             return run([self.docker, *args], timeout=min(15, remaining), max_bytes=65536)
         # Bind mounts must refer to this host, not an accidentally selected remote daemon.
         host = os.environ.get('DOCKER_HOST')
@@ -150,7 +151,7 @@ class DockerCodexAdapter(Adapter):
             raise ConfigError('Image health permits only credential-free, offline version/help probes')
         self._configured(probe=probe)
         if timeout <= 0:
-            raise FactoryError('Docker request time budget exhausted')
+            raise FactoryError('Docker request timed out')
         name = 'stem-model-' + uuid.uuid4().hex
         argv = [self.docker, 'create', '--name', name, '--pull', 'never', '--interactive', '--init',
                 '--network', network, '--read-only', '--cap-drop', 'ALL',
@@ -176,7 +177,7 @@ class DockerCodexAdapter(Adapter):
                 raise FactoryError('Docker request container creation failed; no host fallback')
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise FactoryError('Docker request time budget exhausted before start')
+                raise FactoryError('Docker request timed out before start')
             return run([self.docker, 'start', '--attach', '--interactive', name], stdin=prompt,
                        timeout=remaining, max_bytes=self.role.max_output_bytes)
         finally:
@@ -196,15 +197,13 @@ class DockerCodexAdapter(Adapter):
                 except OSError:
                     # The current process remains blocked even if persistence fails.
                     pass
-                raise FactoryError('Docker cleanup is uncertain; further model requests are blocked') from None
+                raise RunHaltError('Docker cleanup is uncertain; stopping the run until operator investigation') from None
 
     def invoke(self, prompt, schema, workspace, timeout=None):
         limit = min(self.role.timeout, timeout if timeout is not None else self.role.timeout)
         deadline = time.monotonic() + limit
         self._metadata(timeout=limit)  # Disabled/missing runtime fails before schema or model call.
         no_secrets(prompt)
-        if len(prompt.encode('utf-8')) > self.config.limits['max_prompt_bytes']:
-            raise ConfigError('Prompt exceeds configured byte budget')
         workspace = self._workspace(workspace)
         with (workspace / 'response-schema.json').open('x', encoding='utf-8') as stream:
             json.dump(schema, stream)
@@ -218,11 +217,13 @@ class DockerCodexAdapter(Adapter):
             result = self._execute(args, workspace=workspace, prompt=prompt, network='bridge',
                                    timeout=deadline - time.monotonic())
         except ProcessFailure as exc:
+            stop_if_account_blocked(exc.stdout + '\n' + exc.stderr)
             atomic_json(workspace / 'transport.json', {'stdout': exc.stdout, 'stderr': exc.stderr})
             raise
         atomic_json(workspace / 'transport.json', {'stdout': result.stdout, 'stderr': result.stderr,
                                                   'returncode': result.returncode})
         if result.returncode:
+            stop_if_account_blocked(result.stdout + '\n' + result.stderr)
             raise FactoryError('Containerized Codex exited unsuccessfully; check authentication/runtime, no fallback')
         response = self.parse(result.stdout)
         response.transcript, response.stderr = result.stdout, result.stderr

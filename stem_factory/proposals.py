@@ -58,12 +58,18 @@ def prompt(action, schema, **data):
         '\nBEGIN UNTRUSTED INPUT DATA\n' + json.dumps(data, ensure_ascii=False) + '\nEND UNTRUSTED INPUT DATA\n'
 
 
-def author_prompt(schema, inventory, feedback=None, previous=None):
-    return prompt('Author one original task proposal. Incorporate actionable feedback if supplied. '
-                  'output_manifest must contain exactly path /work/task.py and its purpose. '
-                  'dependencies must be exactly ["Python 3.13 standard library"]. '
-                  'Describe deterministic tests and a solution strategy in PRIVATE fields.', schema,
-                  existing_tasks=inventory, previous=previous, feedback=feedback)
+def author_prompt(schema, inventory, feedback=None, previous=None, *, environment_spec=None,
+                  revision_history=None, revision=0):
+    action = ('Author one original task proposal. Incorporate the latest actionable reviewer findings. '
+              'On a repair, preserve correct behavior and avoid unrelated rewrites. '
+              'output_manifest must contain exactly path /work/task.py and its purpose. '
+              'dependencies must be exactly ["Python 3.13 standard library"]. '
+              'Describe deterministic tests and a solution strategy in PRIVATE fields. '
+              'Classify each supplied reviewer finding as blocking or non-blocking in your repair plan; '
+              'do not claim a finding is fixed unless the proposal now addresses it.')
+    return prompt(action, schema, existing_tasks=inventory, previous=previous,
+                  feedback=feedback, environment_spec=environment_spec,
+                  revision_history=revision_history, repair_revision=revision)
 
 
 def validate_scope(proposal):
